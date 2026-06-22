@@ -1,0 +1,62 @@
+---
+title: ""
+author: ""
+date: ""
+output:
+  pdf_document: 
+    latex_engine: xelatex
+    toc: false
+    number_sections: true
+    fig_caption: true
+geometry: margin=2.5cm
+fontsize: 11pt
+lang: pt-BR
+header-includes:
+  - \usepackage{float}
+  - \usepackage{booktabs}
+  - \usepackage{longtable}
+  - \usepackage{array}
+  - \usepackage{caption}
+  - \usepackage{setspace}
+  - \usepackage{indentfirst}
+  - \usepackage{graphicx}
+  - \usepackage{xcolor}
+  - \onehalfspacing
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+\begin{titlepage}
+\centering
+
+\vspace*{2.5cm}
+
+{\Large Universidade de São Paulo \par}
+
+\vspace{0.5cm}
+
+{\large Faculdade de Economia, Administração, Contabilidade e Atuária \par}
+
+\vspace{2.2cm}
+
+{\Huge \textbf{O Efeito da Plataforma CMSP sobre o desempenho dos alunos das escolas estaduais de São Paulo} \par}
+
+\vspace{2.5cm}
+
+{\large Andrei Schoschlakow Bonifácio - 14558482 \par}
+
+\vspace{0.4cm}
+
+{\large Felipe Ferreira Alexandre - 13693144 \par}
+
+\vspace{0.4cm}
+
+{\large 22/06/2026  \par}
+
+\vfill
+
+\end{titlepage}
+
