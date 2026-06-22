@@ -24,10 +24,6 @@ header-includes:
   - \onehalfspacing
 ---
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
-```
-
 
 \begin{titlepage}
 \centering
@@ -60,3 +56,467 @@ knitr::opts_chunk$set(echo = TRUE)
 
 \end{titlepage}
 
+
+## 1. Introdução
+
+O uso da força pelo Estado é uma dimensão central da segurança pública em regimes democráticos. A polícia detém autoridade legal para intervir, abordar, prender e, em circunstâncias extremas, empregar força letal. Justamente por isso, sua atuação depende de mecanismos institucionais de controle, supervisão e responsabilização. Quando a letalidade decorrente da intervenção policial atinge níveis elevados, o problema deixa de ser apenas operacional e passa a envolver questões de legitimidade, confiança pública, proteção de direitos e qualidade da governança estatal. No Brasil, onde a violência letal historicamente se combina a desigualdades territoriais, raciais e sociais, esse debate assume particular relevância.
+
+Nas últimas décadas, diferentes países passaram a adotar câmeras corporais em forças policiais como resposta a problemas de uso excessivo da força, baixa transparência em abordagens e dificuldade de apuração de denúncias. A literatura internacional sobre o tema cresceu rapidamente, impulsionada por experimentos e avaliações quase experimentais em departamentos policiais dos Estados Unidos, Reino Unido e outros contextos. Em geral, a hipótese que orienta esses estudos é que a câmera corporal pode alterar o comportamento tanto do policial quanto do cidadão, ao tornar a interação observável e potencialmente auditável. A câmera, nesse sentido, funcionaria como um mecanismo de accountability em tempo real: ela aumenta a probabilidade de que a conduta adotada em uma ocorrência seja posteriormente revisada, reduzindo incentivos a abusos, omissões ou registros imprecisos.
+
+No entanto, a evidência internacional não é homogênea. Alguns estudos experimentais encontraram reduções expressivas em uso da força e reclamações contra policiais após a adoção de câmeras corporais. Outros, realizados em departamentos maiores ou em contextos de implementação mais complexos, encontraram efeitos pequenos ou estatisticamente indistinguíveis de zero. Revisões sistemáticas da literatura sugerem que o impacto das câmeras depende fortemente do desenho da política: regras de acionamento, grau de discricionariedade do policial, supervisão efetiva, armazenamento das imagens, responsabilização administrativa e integração do equipamento a protocolos de comando e controle. Assim, a pergunta relevante não é apenas se a polícia “tem câmera”, mas sob quais regras a câmera é usada, quem controla as imagens, quando a gravação ocorre e como o material produzido é incorporado à governança da atividade policial.
+
+Essa discussão é especialmente importante para o caso brasileiro. Em contextos de alta letalidade policial, a adoção de câmeras corporais pode ter implicações mais profundas do que em países onde o uso letal da força é menos frequente. A política pode afetar não apenas reclamações ou episódios de força não letal, mas também mortes decorrentes de intervenção policial. Ao mesmo tempo, a avaliação empírica se torna mais desafiadora, pois a implantação das câmeras costuma ocorrer em resposta a crises, pressões sociais, mudanças de comando ou reformas institucionais mais amplas. Isso significa que a queda da letalidade, quando observada, pode refletir uma combinação de fatores: o equipamento em si, novas regras de supervisão, mudanças na cultura organizacional, alterações operacionais e maior escrutínio público.
+
+
+## 2. Dados
+
+A análise empírica deste trabalho utiliza informações administrativas sobre mortes decorrentes de intervenção policial no Estado de São Paulo, combinadas a uma base de tratamento que identifica a entrada de unidades da Polícia Militar do Estado de São Paulo no Programa Olho Vivo. O objetivo é construir um painel de unidades policiais ao longo do tempo, permitindo comparar a trajetória da letalidade policial entre batalhões que passaram a utilizar câmeras corporais e batalhões ainda não tratados ou não tratados no período de análise.
+
+A principal base de resultado é composta por registros de mortes decorrentes de intervenção policial, doravante MDIP. Esses registros incluem informações sobre o ano e o mês estatístico da ocorrência, data do fato, corporação envolvida, situação do agente, município, circunscrição policial, companhia, batalhão, comando, além de características da vítima, como idade, sexo e raça/cor. A presença de identificadores como `LABEL_BTL`, `LABEL_CIA` e `LABEL_CMDO` permite agregar as ocorrências em diferentes níveis administrativos da Polícia Militar. Para a análise principal, opta-se pelo nível de batalhão, construindo uma base em painel `batalhão × mês`.
+
+A escolha do batalhão como unidade de análise decorre de duas razões. Primeiro, a implantação das câmeras corporais no Programa Olho Vivo foi organizada e divulgada principalmente por batalhões e unidades policiais, com entrada em fases sucessivas. Segundo, a base de MDIP fornecida contém identificação do batalhão associado ao evento, permitindo observar a evolução mensal da letalidade em cada unidade. Embora a avaliação da FGV/CCAS tenha explorado uma unidade mais fina, associada à área de circunscrição da Polícia Civil e às companhias da PMESP, a disponibilidade atual dos dados torna o painel em nível de batalhão o desenho mais viável nesta etapa do trabalho.
+
+A variável de resultado principal será o número mensal de mortes decorrentes de intervenção de policiais militares em serviço. Essa escolha é substantivamente importante. As câmeras corporais são utilizadas durante o turno de trabalho, em atividades operacionais de patrulhamento, abordagem e atendimento de ocorrências. Portanto, espera-se que o efeito direto da política se manifeste principalmente sobre a conduta de policiais militares em serviço. Mortes decorrentes de intervenção de policiais militares fora de serviço e mortes decorrentes de intervenção da Polícia Civil serão utilizadas em análises secundárias, com função de robustez e placebo institucional. Caso os efeitos estimados apareçam de forma semelhante em PMs fora de serviço ou em policiais civis, isso sugeriria que a estimativa pode estar capturando choques gerais de segurança pública, mudanças de registro ou alterações institucionais mais amplas, e não apenas a entrada das câmeras corporais nas unidades da PMESP.
+
+A base original de MDIP é uma base de eventos, isto é, cada linha corresponde a uma ocorrência ou vítima. Para a análise econométrica, ela precisa ser transformada em painel balanceado. O primeiro passo consiste em padronizar os nomes das unidades policiais e criar uma variável mensal, a partir do ano e do mês estatístico ou da data do fato. Em seguida, os registros são agregados por batalhão e mês, produzindo variáveis como `mdip_pm_servico`, `mdip_pm_folga`, `mdip_pc` e `mdip_total`. A variável `mdip_pm_servico` será o resultado principal. Além do número de mortes, será criada uma variável binária, `any_mdip_pm_servico`, igual a um quando o batalhão registra ao menos uma morte por intervenção de PM em serviço no mês. Essa variável é útil porque MDIP é um evento relativamente raro no nível mensal, de modo que parte da variação ocorre na margem extensiva, isto é, se houve ou não ao menos uma morte em determinado batalhão-mês.
+
+Um cuidado fundamental na construção do painel é a inclusão dos meses com zero mortes. A base original de eventos registra apenas ocorrências observadas; portanto, batalhões e meses sem MDIP não aparecem automaticamente. Se a agregação fosse feita apenas sobre os registros existentes, o painel ficaria truncado e super-representaria unidades ou períodos com eventos letais. Para evitar esse problema, será construída uma grade completa com todos os batalhões observáveis e todos os meses da janela de análise. Em seguida, a base agregada de MDIP será incorporada a essa grade, preenchendo com zero os batalhões-mês sem registros de morte. Esse procedimento é indispensável para que o outcome seja interpretado corretamente como contagem mensal de mortes por unidade policial.
+
+A segunda base relevante é a tabela de tratamento, que identifica quando cada batalhão passou a integrar o Programa Olho Vivo. A variável central é a data de entrada no uso de câmeras corporais, denominada aqui `data_pov`. A partir dela, será construída a variável `g`, que representa o primeiro período tratado no painel. No método de Callaway e Sant’Anna, `g` identifica a coorte de tratamento: unidades com `g = 0` são aquelas nunca tratadas na janela observada, enquanto unidades com `g > 0` entram no tratamento a partir do período correspondente. Também será criada a variável `tratado_mes`, igual a um nos meses em que o batalhão já havia recebido câmeras e zero nos meses anteriores.
+
+A qualidade da tabela de tratamento é um dos principais desafios da pesquisa. Os estudos já publicados indicam que a implantação do Programa Olho Vivo ocorreu em ondas: os três primeiros batalhões passaram a utilizar câmeras em agosto de 2020; uma nova expansão ocorreu em junho de 2021; outras coortes entraram em 2022. Entretanto, a base atualmente disponível contém datas seguras apenas para parte das unidades tratadas, especialmente os três batalhões iniciais e os quinze batalhões da expansão de junho de 2021. Isso significa que batalhões sem data preenchida não devem ser automaticamente classificados como nunca tratados. Uma unidade sem informação de tratamento pode, na verdade, ter recebido câmeras em alguma das ondas posteriores de 2022. Classificá-la como controle geraria contaminação do grupo contrafactual.
+
+Diante dessa limitação, a análise será desenvolvida em etapas. A primeira etapa usará apenas as unidades com data de tratamento conhecida e uma janela temporal que minimize o risco de contaminação por coortes não observadas. Em particular, uma especificação inicial poderá considerar o período de 2017 a 2021, utilizando como tratados os batalhões com entrada conhecida até junho de 2021. Essa análise deve ser interpretada como o efeito da adoção inicial das câmeras corporais, e não como o efeito total de todo o Programa Olho Vivo. Em uma segunda etapa, caso sejam obtidas as datas das coortes de 2022 por fontes oficiais, a base será expandida para incorporar todas as ondas de implantação até dezembro de 2022.
+
+A terceira família de dados diz respeito a covariáveis pré-tratamento. Como a alocação das câmeras não foi aleatória, é provável que os batalhões escolhidos inicialmente apresentassem características distintas dos demais. Estudos sobre o Programa Olho Vivo indicam que parte da expansão esteve associada a unidades com maior relevância operacional e histórico de uso da força. Portanto, é importante controlar, sempre que possível, por diferenças prévias entre unidades. A partir da própria base de MDIP, serão construídas covariáveis como média mensal de MDIP antes do tratamento, total de mortes no período pré, indicador de ocorrência de ao menos uma MDIP no período pré e tendência prévia da letalidade. A janela preferencial para essas covariáveis será 2017-2019, por anteceder tanto a pandemia quanto a implantação inicial das câmeras. Alternativamente, serão testadas janelas mais curtas, como 2019, e janelas que incluem parte de 2020, sempre com cautela interpretativa.
+
+Além das informações de letalidade, a literatura sugere a importância de incorporar indicadores de produtividade policial e criminalidade local. O debate público sobre câmeras corporais frequentemente envolve a hipótese de “inibição policial”, isto é, a possibilidade de que os agentes reduzam sua atividade operacional por receio de responsabilização. Para lidar com esse ponto, o ideal é complementar a análise com dados de prisões em flagrante, flagrantes lavrados, armas apreendidas, veículos recuperados, ocorrências de tráfico de drogas, porte de drogas, porte ilegal de arma e registros de resistência ou desacato. Essas informações podem ser obtidas nas bases públicas da Secretaria da Segurança Pública de São Paulo, embora a disponibilidade no nível de batalhão possa exigir pedidos adicionais de acesso à informação. Caso os dados estejam disponíveis apenas por município ou circunscrição, eles serão utilizados em análises descritivas ou como controles agregados, mas não substituirão o painel principal em nível de batalhão.
+
+Outro desafio está relacionado ao ano de 2020. A implantação inicial das câmeras ocorreu em agosto de 2020, mas esse ano também foi marcado pela pandemia de Covid-19, por mudanças nos padrões de circulação e criminalidade, e por alterações institucionais de controle do uso da força. Portanto, 2020 não pode ser tratado como um ano comum. Ao mesmo tempo, excluí-lo automaticamente da análise principal reduz a capacidade de observar a dinâmica prévia e a entrada inicial do tratamento. Por essa razão, a estratégia adotada será manter 2020 na especificação principal, mas realizar exercícios de robustez excluindo esse ano. Desse modo, será possível avaliar se os resultados dependem do período mais diretamente afetado pela pandemia.
+
+Por fim, deve-se destacar que a análise não interpreta as câmeras corporais como uma intervenção puramente tecnológica. Os relatórios sobre o caso paulista enfatizam que o Programa Olho Vivo esteve inserido em um conjunto mais amplo de medidas de supervisão, controle e responsabilização da atividade policial. Assim, a variável de tratamento representa a entrada da unidade em um regime institucional associado ao uso de câmeras corporais, e não simplesmente a presença física do equipamento. Essa distinção é relevante para a interpretação dos resultados: o efeito estimado deve ser entendido como impacto da adesão ao Programa Olho Vivo em sua configuração original, com regras específicas de gravação, armazenamento e supervisão.
+
+## 3. Metodologia Empregada
+
+A estratégia empírica deste trabalho utiliza o método de diferença-em-diferenças com múltiplos períodos e adoção escalonada, conforme a abordagem proposta por Callaway e Sant’Anna. Esse método é adequado ao caso analisado porque a implantação das câmeras corporais não ocorreu simultaneamente em todos os batalhões. Algumas unidades passaram a utilizar câmeras em agosto de 2020, outras em junho de 2021 e outras em ondas posteriores. Portanto, não há um único momento de tratamento comum a todas as unidades; há diferentes coortes de entrada no Programa Olho Vivo.
+
+Em desenhos tradicionais de diferença-em-diferenças com dois grupos e dois períodos, compara-se a mudança média no resultado do grupo tratado antes e depois da intervenção com a mudança média observada no grupo controle. Esse desenho simples, no entanto, torna-se problemático quando há adoção escalonada e efeitos heterogêneos ao longo do tempo. Em modelos convencionais de efeitos fixos bidirecionais, unidades já tratadas podem acabar sendo usadas como controle para unidades tratadas posteriormente, o que pode gerar comparações inadequadas se o efeito do tratamento variar entre coortes ou ao longo da exposição. O método de Callaway e Sant’Anna evita esse problema ao estimar efeitos médios de tratamento específicos para cada grupo de entrada e período, denominados `ATT(g,t)`.
+
+No presente trabalho, `ATT(g,t)` representa o efeito médio da adoção das câmeras corporais para o grupo de batalhões que entrou no Programa Olho Vivo no período `g`, observado em um mês `t`. A identificação depende da comparação entre a evolução da letalidade nos batalhões tratados e a evolução da letalidade em batalhões ainda não tratados ou nunca tratados no mesmo período. A especificação principal utilizará o grupo de controle `not-yet-treated`, isto é, unidades que ainda não receberam câmeras até aquele mês. Essa escolha é coerente com a implantação escalonada, pois permite que batalhões que serão tratados no futuro sirvam temporariamente como contrafactual para batalhões já tratados, desde que ainda não tenham recebido o tratamento no período considerado.
+
+A hipótese central do modelo é a de tendências paralelas condicionais. Em termos substantivos, essa hipótese exige que, na ausência das câmeras, a trajetória de MDIP dos batalhões tratados teria evoluído de forma semelhante à trajetória dos batalhões utilizados como controle, após o condicionamento por covariáveis observáveis. Essa hipótese não é diretamente testável para o período pós-tratamento, mas pode ser investigada no período pré-tratamento. Por isso, a análise dará grande importância aos gráficos de evento, que mostram os efeitos estimados em períodos relativos à entrada das câmeras. Caso os coeficientes nos meses anteriores ao tratamento sejam próximos de zero e estatisticamente indistinguíveis de zero, há maior plausibilidade de que tratados e controles seguiam trajetórias comparáveis antes da intervenção.
+
+A especificação principal será estimada no pacote `did` do R, que implementa o estimador de Callaway e Sant’Anna. A estrutura mínima da base será composta pelas variáveis `id_btl`, `t`, `g` e `mdip_pm_servico`. A variável `id_btl` identifica o batalhão; `t` é um índice mensal sequencial; `g` identifica o primeiro mês tratado; e `mdip_pm_servico` é o resultado principal. A estimação será feita com o método duplamente robusto, que combina modelagem do resultado e ponderação por probabilidade de tratamento. Essa opção é útil porque oferece maior proteção contra erros de especificação, desde que ao menos um dos componentes do modelo esteja corretamente especificado.
+
+A equação conceitual pode ser descrita da seguinte forma. Para cada batalhão `i` e mês `t`, observa-se um resultado `Y_it`, correspondente ao número de mortes decorrentes de intervenção de PMs em serviço. Cada batalhão pertence a uma coorte `G_i`, definida pelo primeiro mês em que recebeu câmeras. O objetivo é estimar a diferença entre o resultado observado dos batalhões tratados após a entrada no Programa Olho Vivo e o resultado contrafactual que esses mesmos batalhões teriam apresentado caso não tivessem recebido o tratamento. Como esse contrafactual não é observado, ele é aproximado pela trajetória dos batalhões ainda não tratados, ajustada pelas diferenças prévias observáveis.
+
+Na primeira versão da análise, serão incluídas covariáveis pré-tratamento calculadas a partir da própria base de MDIP. Entre elas estão a média mensal de MDIP entre 2017 e 2019, o total de MDIP no mesmo período e a tendência linear da letalidade antes da implantação das câmeras. Essas covariáveis têm duas funções. Primeiro, ajudam a controlar diferenças prévias entre batalhões com distintos níveis históricos de letalidade. Segundo, tornam a hipótese de tendências paralelas mais plausível ao comparar unidades que, antes da política, apresentavam padrões semelhantes de uso letal da força. Caso sejam obtidos dados adicionais de criminalidade e produtividade policial, novas covariáveis poderão ser incorporadas, como homicídios, roubos, prisões em flagrante, apreensão de armas e indicadores de atividade operacional.
+
+A análise será organizada em quatro conjuntos de resultados. O primeiro será a estimação principal para `mdip_pm_servico`. Esse resultado responderá à pergunta central do trabalho: a entrada no Programa Olho Vivo reduziu as mortes decorrentes de intervenção de policiais militares em serviço? A apresentação incluirá o efeito médio agregado, os efeitos por coorte de entrada e o gráfico de evento. O gráfico de evento será particularmente importante, pois permitirá visualizar tanto a ausência ou presença de tendências prévias quanto a dinâmica dos efeitos após a implantação.
+
+O segundo conjunto de resultados utilizará uma variável binária de ocorrência de MDIP. Em vez de contar o número de mortes, o outcome `any_mdip_pm_servico` indicará se houve ao menos uma morte decorrente de intervenção de PM em serviço em determinado batalhão-mês. Essa especificação é relevante porque a distribuição mensal de MDIP por batalhão tende a ter muitos zeros e poucos valores positivos. Assim, o efeito das câmeras pode se manifestar tanto na redução da intensidade dos eventos quanto na redução da probabilidade de ocorrência de qualquer evento letal.
+
+O terceiro conjunto será composto por placebos e análises de robustez institucional. O primeiro placebo usará como resultado as mortes decorrentes de intervenção de policiais militares fora de serviço. Como esses casos não estão diretamente vinculados ao uso operacional das câmeras durante o turno, espera-se que o efeito seja menor ou estatisticamente mais fraco. O segundo placebo usará mortes decorrentes de intervenção da Polícia Civil. Como o tratamento analisado refere-se à PMESP, um efeito forte sobre a Polícia Civil levantaria suspeitas de que a estimativa está captando mudanças gerais de contexto, registro ou política de segurança pública, e não o efeito específico do Programa Olho Vivo. Esses placebos não são testes definitivos, mas fornecem evidência adicional sobre a plausibilidade da interpretação causal.
+
+O quarto conjunto será dedicado a janelas temporais alternativas. A especificação principal manterá 2020, pois a adoção inicial ocorreu nesse ano e porque a literatura aplicada ao caso paulista não descarta automaticamente o período da pandemia. No entanto, serão estimadas versões excluindo 2020, para verificar se os resultados são sensíveis ao ano mais afetado por mudanças na circulação e na atividade policial. Também serão testadas janelas como 2017-2021, 2019-2021 e, caso a tabela completa de tratamento seja obtida, 2017-2022. A análise de 2017-2021 é particularmente útil enquanto não houver identificação segura de todas as coortes de 2022, pois reduz o risco de tratar como controles unidades que já haviam recebido câmeras em ondas posteriores.
+
+Um ponto metodológico adicional diz respeito ao uso de matching ou balanceamento. Os estudos de referência sobre São Paulo utilizaram a adoção escalonada e comparações com unidades ainda não tratadas, mas não necessariamente uma etapa clássica de matching. Neste trabalho, o modelo principal seguirá a estratégia de diferença-em-diferenças com covariáveis. Em uma etapa posterior, poderá ser aplicado matching ou balanceamento prévio para tornar os grupos mais comparáveis. Essa etapa seria realizada em nível de batalhão, usando somente variáveis pré-tratamento, como histórico de MDIP, tendência prévia, comando, tipo de unidade e indicadores de criminalidade ou produtividade. Os pesos resultantes poderiam então ser incorporados ao estimador de Callaway e Sant’Anna. Essa abordagem será tratada como robustez, não como especificação principal.
+
+Há ainda desafios relacionados à granularidade dos dados. A avaliação da FGV/CCAS utilizou uma estrutura mais próxima da área de circunscrição da Polícia Civil associada às companhias da PMESP, com periodicidade bimestral. Esse desenho tem vantagens, pois aproxima melhor a área de patrulhamento do local de registro da ocorrência e reduz a volatilidade de eventos raros. No presente trabalho, a base disponível permite uma análise inicial em nível de batalhão-mês. Essa escolha é transparente e operacionalmente consistente com a tabela de tratamento disponível, mas será reconhecida como limitação. Caso seja obtida a correspondência entre companhias da PMESP e circunscrições da Polícia Civil, será possível construir uma versão mais próxima da estratégia da FGV, em painel `companhia ou circunscrição × bimestre`.
+
+A escolha entre periodicidade mensal e bimestral também será considerada. A periodicidade mensal preserva mais informação temporal e permite observar com mais precisão a entrada do tratamento. Por outro lado, MDIP é um evento raro, e a agregação bimestral pode suavizar a série, reduzir ruído e aproximar a metodologia dos estudos anteriores. Assim, a análise principal será inicialmente mensal, mas uma robustez bimestral poderá ser construída, especialmente se os resultados mensais apresentarem alta volatilidade ou problemas de inferência.
+
+A interpretação dos coeficientes será cuidadosa. O parâmetro estimado não será apresentado como efeito isolado da câmera enquanto objeto físico, mas como efeito da entrada do batalhão no Programa Olho Vivo, entendido como um arranjo institucional que combina equipamento, protocolo de gravação, supervisão e regras de uso. Essa distinção é central porque os estudos recentes indicam que mudanças no protocolo de acionamento e no grau de supervisão podem alterar a efetividade da política. Portanto, a análise empírica buscará avaliar a experiência original de implantação das câmeras corporais na PMESP, especialmente no período de expansão inicial do programa.
+
+Em síntese, a metodologia combina uma base administrativa de MDIP, uma tabela de tratamento por batalhão e um estimador apropriado para adoção escalonada. A análise parte de um painel balanceado de batalhões por mês, define como outcome principal as mortes decorrentes de intervenção de PMs em serviço, usa a data de entrada no Programa Olho Vivo como tratamento e estima efeitos médios por coorte e período. Os desafios principais são a incompletude das datas de tratamento para as coortes de 2022, a presença da pandemia em 2020, a não aleatoriedade da seleção dos batalhões e a dificuldade de obter dados de produtividade e criminalidade no mesmo nível de granularidade. Esses desafios serão enfrentados por meio de janelas alternativas, placebos, covariáveis pré-tratamento, event-studies e, quando possível, matching ou balanceamento.
+
+
+```{r setup, include=FALSE}
+# Imports de libraries e dados
+library(data.table)
+library(readxl)
+library(lubridate)
+library(did)
+library(ggplot2)
+library(scales)
+
+arquivo <- "C:/Users/Felipe/OneDrive/Documentos/GitHub/projeto-aps/inputs/MDIP_2026.xlsx"
+
+mdip <- as.data.table(
+  read_excel(arquivo, sheet = "MDIP_2013_A_2026")
+)
+
+trat <- as.data.table(
+  read_excel(arquivo, sheet = "BATALHOES_TRATADOS")
+)
+
+# Tratamento dos nomes das colunas
+setnames(
+  mdip,
+  old = c(
+    "ANO_ESTATISTICA",
+    "MES_ESTATISTICA",
+    "COORPORACAO",
+    "SITUACAO",
+    "LABEL_BTL",
+    "LABEL_CIA",
+    "LABEL_CMDO",
+    "IDADE_PESSOA",
+    "COR_PELE"
+  ),
+  new = c(
+    "ano",
+    "mes",
+    "corporacao",
+    "situacao",
+    "id_btl",
+    "id_cia",
+    "label_cmdo",
+    "idade",
+    "cor_pele"
+  ),
+  skip_absent = TRUE
+)
+```
+
+```{r dim_mes, include=FALSE}
+# Dimensiona mes
+mdip[
+  ,
+  ano_mes := as.IDate(sprintf("%04d-%02d-01", ano, mes))
+]
+```
+
+
+```{r outcomes, include=FALSE}
+mdip_btl_mes <- mdip[
+  ,
+  .(
+    mdip_total = .N,
+    mdip_pm_servico = sum(corporacao == "PM" & situacao == "Servico", na.rm = TRUE),
+    mdip_pm_folga = sum(corporacao == "PM" & situacao == "Folga", na.rm = TRUE),
+    mdip_pc = sum(corporacao == "PC", na.rm = TRUE),
+    mdip_adolescente = sum(
+      corporacao == "PM" &
+        situacao == "Servico" &
+        idade >= 10 & idade <= 19,
+      na.rm = TRUE
+    ),
+    mdip_negros = sum(
+      corporacao == "PM" &
+        situacao == "Servico" &
+        cor_pele %in% c("Preta", "Parda"),
+      na.rm = TRUE
+    ),
+    label_cmdo = first(na.omit(label_cmdo))
+  ),
+  by = .(id_btl, ano_mes)
+]
+```
+
+
+```{r painel_balanceado, include=FALSE}
+inicio <- as.IDate("2017-01-01")
+fim    <- as.IDate("2022-12-01")
+
+meses <- data.table(
+  ano_mes = seq(inicio, fim, by = "month")
+)
+
+batalhoes <- unique(mdip[!is.na(id_btl), .(id_btl)])
+
+painel <- CJ(
+  id_btl = batalhoes$id_btl,
+  ano_mes = meses$ano_mes
+)
+
+painel <- merge(
+  painel,
+  mdip_btl_mes,
+  by = c("id_btl", "ano_mes"),
+  all.x = TRUE
+)
+
+cols_y <- c(
+  "mdip_total",
+  "mdip_pm_servico",
+  "mdip_pm_folga",
+  "mdip_pc",
+  "mdip_adolescente",
+  "mdip_negros"
+)
+
+for (v in cols_y) {
+  painel[is.na(get(v)), (v) := 0L]
+}
+```
+
+
+```{r dim_tempo, include=FALSE}
+# Dimensao Tempo
+
+painel[
+  ,
+  t := as.integer(factor(ano_mes, levels = sort(unique(ano_mes))))
+]
+```
+
+
+```{r dim_tratamento, include=FALSE}
+setnames(trat, "batalhao", "id_btl", skip_absent = TRUE)
+
+trat[
+  !is.na(data_pov),
+  data_pov := as.IDate(data_pov)
+]
+
+painel <- merge(
+  painel,
+  trat[, .(id_btl, data_pov, fase_pov)],
+  by = "id_btl",
+  all.x = TRUE
+)
+
+mapa_t <- unique(painel[, .(ano_mes, t)])
+
+trat_g <- merge(
+  trat[!is.na(data_pov)],
+  mapa_t,
+  by.x = "data_pov",
+  by.y = "ano_mes",
+  all.x = TRUE
+)
+
+setnames(trat_g, "t", "g")
+
+painel <- merge(
+  painel,
+  trat_g[, .(id_btl, g)],
+  by = "id_btl",
+  all.x = TRUE
+)
+
+painel[is.na(g), g := 0L]
+
+painel[
+  ,
+  tratado_mes := as.integer(g > 0 & t >= g)
+]
+
+painel[
+  ,
+  any_mdip_pm_servico := as.integer(mdip_pm_servico > 0)
+]
+```
+
+
+```{r grafico_mdip_fora_servico_linha, echo=FALSE, warning=FALSE, message=FALSE, fig.width=8, fig.height=5}
+library(data.table)
+library(ggplot2)
+library(lubridate)
+library(scales)
+
+# Base auxiliar
+painel_graf <- copy(painel)
+
+painel_graf[
+  ,
+  ano := year(ano_mes)
+]
+
+# Grupo fixo:
+# Batalhoes do Programa = batalhoes que receberam camera em algum momento
+# Demais Batalhoes = batalhoes nunca tratados
+painel_graf[
+  ,
+  grupo_programa := fifelse(
+    g > 0,
+    "Batalhoes do Programa",
+    "Demais Batalhoes"
+  )
+]
+
+# Anos em que houve inicio da intervencao
+anos_intervencao <- painel_graf[
+  g > 0 & t == g,
+  .(ano_intervencao = unique(ano))
+][order(ano_intervencao)]
+
+# Agregacao anual: PMESP fora de servico
+mdip_fora_servico_ano <- painel_graf[
+  ,
+  .(
+    mdip = sum(mdip_pm_folga, na.rm = TRUE)
+  ),
+  by = .(ano, grupo_programa)
+][order(ano, grupo_programa)]
+
+# Grafico de linhas
+ggplot(
+  mdip_fora_servico_ano,
+  aes(
+    x = ano,
+    y = mdip,
+    group = grupo_programa,
+    color = grupo_programa
+  )
+) +
+  geom_vline(
+    data = anos_intervencao,
+    aes(xintercept = ano_intervencao),
+    inherit.aes = FALSE,
+    linetype = "dashed",
+    linewidth = 0.7,
+    color = "grey40"
+  ) +
+  geom_line(linewidth = 1.1) +
+  geom_point(size = 2.6) +
+  geom_text(
+    aes(label = mdip),
+    vjust = -0.9,
+    size = 4,
+    fontface = "bold",
+    show.legend = FALSE
+  ) +
+  scale_x_continuous(
+    breaks = sort(unique(mdip_fora_servico_ano$ano))
+  ) +
+  scale_y_continuous(
+    limits = c(0, max(mdip_fora_servico_ano$mdip, na.rm = TRUE) * 1.18),
+    labels = scales::label_number(
+      big.mark = ".",
+      decimal.mark = ","
+    )
+  ) +
+  scale_color_manual(
+    values = c(
+      "Batalhoes do Programa" = "#c5161d",
+      "Demais Batalhoes" = "#39aee2"
+    )
+  ) +
+  labs(
+    title = "GRAFICO 2: Vitimas de MDP da PMESP fora de servico",
+    subtitle = "por ano; linhas tracejadas indicam anos de inicio da intervencao",
+    x = NULL,
+    y = NULL,
+    color = NULL,
+    caption = "Fonte: Ministerio Publico do Estado de Sao Paulo. Elaboracao propria."
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(
+    plot.title = element_text(face = "bold", size = 17),
+    plot.subtitle = element_text(size = 15, face = "italic"),
+    legend.position = "bottom",
+    legend.text = element_text(size = 11),
+    panel.grid.minor = element_blank(),
+    panel.grid.major.x = element_blank(),
+    axis.text.x = element_text(size = 11),
+    axis.text.y = element_text(size = 11),
+    plot.caption = element_text(hjust = 0, size = 9, face = "bold"),
+    plot.margin = margin(10, 15, 10, 15)
+  )
+```
+
+
+```{r grafico_mdip_ano_servico_folga, echo=FALSE, warning=FALSE, message=FALSE, fig.width=11, fig.height=7}
+library(ggplot2)
+library(scales)
+
+# Base auxiliar
+painel_graf <- copy(painel)
+
+painel_graf[
+  ,
+  ano := lubridate::year(ano_mes)
+]
+
+# Grupo fixo: batalhoes que pertencem ao programa em algum momento
+painel_graf[
+  ,
+  grupo_programa := fifelse(
+    g > 0,
+    "Batalhoes com Camera",
+    "Demais sem Camera"
+  )
+]
+
+# Anos em que houve inicio da intervencao
+anos_intervencao <- painel_graf[
+  g > 0 & t == g,
+  .(ano_intervencao = unique(ano))
+][order(ano_intervencao)]
+
+# Agregacao anual: MDIP PM em servico
+mdip_servico_ano <- painel_graf[
+  ,
+  .(
+    mdip = sum(mdip_pm_servico, na.rm = TRUE)
+  ),
+  by = .(ano, grupo_programa)
+][order(ano, grupo_programa)]
+
+# Grafico
+ggplot(
+  mdip_servico_ano,
+  aes(
+    x = ano,
+    y = mdip,
+    group = grupo_programa,
+    color = grupo_programa
+  )
+) +
+  geom_vline(
+    data = anos_intervencao,
+    aes(xintercept = ano_intervencao),
+    inherit.aes = FALSE,
+    linetype = "dashed",
+    linewidth = 0.7,
+    color = "grey40"
+  ) +
+  geom_line(linewidth = 1.1) +
+  geom_point(size = 2.4) +
+  geom_text(
+    aes(label = mdip),
+    vjust = -0.9,
+    size = 4,
+    fontface = "bold",
+    show.legend = FALSE
+  ) +
+  scale_x_continuous(
+    breaks = sort(unique(mdip_servico_ano$ano))
+  ) +
+  scale_y_continuous(
+    limits = c(0, max(mdip_servico_ano$mdip, na.rm = TRUE) * 1.18),
+    labels = scales::label_number(
+      big.mark = ".",
+      decimal.mark = ","
+    )
+  ) +
+  scale_color_manual(
+    values = c(
+      "Batalhoes com Camera" = "#c5161d",
+      "Demais sem Camera" = "#008080"
+    )
+  ) +
+  labs(
+    title = "GRAFICO 1: Vitimas de MDP da PMESP em servico",
+    subtitle = "por ano; linhas tracejadas indicam anos de inicio da intervencao",
+    x = NULL,
+    y = NULL,
+    color = NULL,
+    caption = "Fonte: Ministerio Publico do Estado de Sao Paulo. Elaboracao propria."
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(
+    plot.title = element_text(face = "bold", size = 17),
+    plot.subtitle = element_text(size = 15, face = "italic"),
+    legend.position = "bottom",
+    legend.text = element_text(size = 11),
+    panel.grid.minor = element_blank(),
+    panel.grid.major.x = element_blank(),
+    axis.text.x = element_text(size = 11),
+    axis.text.y = element_text(size = 11),
+    plot.caption = element_text(hjust = 0, size = 9, face = "bold"),
+    plot.margin = margin(10, 15, 10, 15)
+  )
+```
