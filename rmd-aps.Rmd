@@ -1,0 +1,1020 @@
+---
+title: ""
+author: ""
+date: ""
+output:
+  pdf_document: 
+    latex_engine: xelatex
+    toc: false
+    number_sections: true
+    fig_caption: true
+geometry: margin=2.5cm
+fontsize: 11pt
+lang: pt-BR
+header-includes:
+  - \usepackage{float}
+  - \usepackage{booktabs}
+  - \usepackage{longtable}
+  - \usepackage{array}
+  - \usepackage{caption}
+  - \usepackage{setspace}
+  - \usepackage{indentfirst}
+  - \usepackage{graphicx}
+  - \usepackage{xcolor}
+  - \onehalfspacing
+---
+
+
+```{r setup, include=FALSE, echo=FALSE, message=FALSE, warning=FALSE}
+library(data.table)
+library(ggplot2)
+library(knitr)
+library(tinytex)
+library(MatchIt)
+
+
+dir_output <- "C:\\Users\\Felipe\\OneDrive\\Documentos\\GitHub\\projeto-aps\\outputs"
+
+escolas_ativas <- readRDS(file.path(dir_output, "escolas_ativas.rds"))
+
+ideb_painel <- readRDS(file.path(dir_output, "ideb_painel.rds"))
+
+censo_informatizacao_painel <- readRDS(
+  file.path(dir_output, "censo_informatizacao_painel.rds")
+)
+
+painel_ideb_informatizacao <- readRDS(
+  file.path(dir_output, "painel_ideb_informatizacao.rds")
+)
+
+diagnostico_bases <- readRDS(
+  file.path(dir_output, "diagnostico_bases.rds")
+)
+
+corrigir_utf8 <- function(x) {
+  if (!is.character(x)) return(x)
+  
+  x <- as.character(x)
+  
+  y <- iconv(x, from = "", to = "UTF-8", sub = "")
+  
+  idx <- is.na(y) & !is.na(x)
+  
+  if (any(idx)) {
+    y[idx] <- iconv(x[idx], from = "latin1", to = "UTF-8", sub = "")
+  }
+  
+  enc2utf8(y)
+}
+
+corrigir_utf8_dt <- function(dt) {
+  for (col in names(dt)) {
+    if (is.character(dt[[col]])) {
+      data.table::set(dt, j = col, value = corrigir_utf8(dt[[col]]))
+    }
+  }
+  invisible(dt)
+}
+
+setDT(escolas_ativas)
+setDT(ideb_painel)
+setDT(censo_informatizacao_painel)
+setDT(painel_ideb_informatizacao)
+
+corrigir_utf8_dt(escolas_ativas)
+corrigir_utf8_dt(ideb_painel)
+corrigir_utf8_dt(censo_informatizacao_painel)
+corrigir_utf8_dt(painel_ideb_informatizacao)
+```
+
+
+\begin{titlepage}
+\centering
+
+\vspace*{2.5cm}
+
+{\Large Universidade de São Paulo \par}
+
+\vspace{0.5cm}
+
+{\large Faculdade de Economia, Administração, Contabilidade e Atuária \par}
+
+\vspace{2.2cm}
+
+{\Huge \textbf{O Efeito da Plataforma CMSP sobre o desempenho dos alunos das escolas estaduais de São Paulo} \par}
+
+\vspace{2.5cm}
+
+{\large Andrei Schoschlakow Bonifácio - 14558482 \par}
+
+\vspace{0.4cm}
+
+{\large Felipe Ferreira Alexandre - 13693144 \par}
+
+\vspace{0.4cm}
+
+{\large 22/06/2026  \par}
+
+\vfill
+
+\end{titlepage}
+
+# Introdução
+
+O objetivo deste trabalho é investigar o efeito da implementação do Centro de Mídias da Educação de São Paulo (CMSP) sobre o desempenho dos estudantes das escolas públicas estaduais do estado de São Paulo. 
+
+O CMSP, atualmente reformulado sob o nome de Sala do Futuro, foi uma plataforma digital inicialmente desenvolvida no contexto da pandemia de COVID-19 para disponibilzar aulas remotas aos alunos. Em um contexto de interrupção de atividades escolares presenciais como medida preventiva à contaminação pelo vírus, as possibilidades de usufruto das alternativas digitais pelos alunos surgiram como um potencial fator gerador de desigualdades educacionais. Por um lado, as escolas públicas estaduais possuíam condições mais ou menos favoráveis para a implementação do modelo online - quanto à capacitação dos professores, por exemplo; por outro, a desigualdade, entre os alunos, de acesso à internet e a dispositivos para assistir às aulas também contribuiu para definir os seus resultados educacionais naquele contexto. Nesse sentido, uma análise da efetividade do CMSP como política pública deve levar em conta a capacidade que escolas e alunos possuíam para o seu devido usufruto. 
+
+Refletindo mais especificamente sobre características da infraestrutura escolar que potencialmente impactaram a efetividade do CMSP, podemos considerar a disponibilidade de tablets ou computadores para os alunos para o desenvolvimento de atividades diversas, bem como a presença de laboratório de informática na unidade de ensino. Alunos mais acostumados previamente a atividades educacionais digitais podem ter feito melhor proveito da plataforma CMSP. Já quanto à condição socioeconômica dos alunos, a presença e a qualidade de conexão à internet em casa, além da quantidade de dispositivos que permitem acessá-la, também potencialmente contribuem para diferenciar a capacidade dos estudantes em usufruir de plataformas de ensino digital.
+
+Considerando as restrições estruturais existentes no Brasil à ampliação, via capital humano, da produtividade de trabalhadores de origem socioeconômica menos favorável, potenciais desigualdades educacionais emergentes da experiência pandêmica podem contribuir para a perpetuação ou para o aprofundamento da desigualdade de rendimentos no mercado de trabalho, tornando ainda mais escassas as possibilidades de desenvolvimento profissional que permitam avançar o padrão de vida das famílias ao longo do tempo. Dessa forma, a análise das consequências das medidas educacionais emergenciais tomadas durante a pandemia de COVID-19 são fundamentais para que se detectem limitações em seus resultados e se formulem políticas e estratégias de correção de desigualdades. 
+
+-MAIS 1 OU 2 PARÁGRAFOS 
+
+# Dados
+
+As fontes de dados utilizadas neste projeto foram a Subsecretaria de Planejamento da Rede Escolar (SUPLAN), a Secretaria da Educação do Estado de São Paulo (SEDUC-SP) e o Instituto Nacional de Estudos e Pesquisas Educacionais Anísio Teixeira (Inep). A unidade de análise é a escola-ano.
+
+As variáveis extraídas de cada fonte são apresentadas a seguir.
+
+- **Subsecretaria de Planejamento da Rede Escolar (SUPLAN)**
+  - **Escolas Ativas (2018–2025)**
+    - Diretoria de Ensino
+    - Município
+    - Distrito
+    - Código da Escola (Estadual)
+    - Código da Escola (MEC)
+    - Nome da Escola
+    - Tipo de Escola
+    - Endereço
+    - CEP
+    - Latitude
+    - Longitude
+
+  - **Índice de Nível Socioeconômico (INSE) por escola (2019)**
+    - Código da Escola (Estadual)
+    - Nível Socioeconômico dos Alunos
+
+- **Secretaria da Educação do Estado de São Paulo (SEDUC-SP)**
+  - **Centro de Mídias de São Paulo (CMSP) (2020–2021)**
+    - Código da Escola
+    - Tipo de Ensino
+    - Data
+    - Tempo de Sessão
+
+- **Instituto Nacional de Estudos e Pesquisas Educacionais Anísio Teixeira (Inep)**
+  - **Censo Escolar (2015–2025)**
+    - Ano
+    - ID da Escola
+    - Quantidade de Computadores
+    - Quantidade de Computadores Portáteis
+    - Quantidade de Tablets
+    - Acesso à Internet
+    - Laboratório de Informática
+
+  - **Índice de Desenvolvimento da Educação Básica (Ideb) (2015–2025)**
+    - Ano
+    - ID da Escola
+    - Indicador de Rendimento
+    - Nota de Matemática
+    - Nota de Língua Portuguesa
+    - Nota Saeb
+    - Ideb
+    
+  COLOCAR A 'FUNÇÃO INTUITIVA' DE CADA VARIÁVEL
+  
+# Metodologia 
+
+A estratégia empírica deste trabalho busca estimar o impacto do programa CMSP sobre o desempenho dos alunos das escolas estaduais paulistas, medido por meio do Ideb e de seus componentes - Indicador de Rendimento, Nota de Matemática, Nota de Língua Portuguesa e Nota Saeb. 
+
+A implementação do programa nas escolas foi modelada como a atribuição de tratamento em um modelo de Diferenças em Diferenças. Visto que o CMSP foi implementado em um conjunto de escolas no ano de 2020 e em outro conjunto no ano de 2021, foi utilizado o estimador DiD de múltiplos períodos de tempo formulado por Callaway e Sant'Anna, que recupera o efeito médio do tratamento e corrige limitações do modelo tradicional TWFE (uso de amostras inicialmente tratadas como controle para amostras ainda não tratadas). 
+
+Para reduzir o viés de seleção, o pareamento de tratados e controles comparáveis foi utilizado como complemento ao método DiD em múltiplos períodos de tempo. As variáveis de localização da escola - endereço, CEP, latitude e longitude -, nível socioeconômico dos alunos e características da infraestrutura de tecnologia - computadores e tablets disponíveis para alunos, acesso à internet, presença de laboratório de informática - foram utilizadas como controles para a realização do matching.
+
+Para que o estimador DiD recupere o efeito do tratamento sobre os tratados, é necessário que valha a hipótese de tendências paralelas - ou seja, é preciso que, na ausência da atribuição de tratamento, a variação dos resultados ao longo do tempo fosse a mesma nas escolas tratadas e nas escolas não tratadas. Para corroborar essa suposição, que não é testável, foram utilizados dados anuais de 2018 em diante para a análise de tendências prévias entre escolas tratadas e não tratadas. 
+
+# Análise descritiva e amostra pareada
+
+Antes da estimação por Diferenças em Diferenças, é necessário verificar se as escolas tratadas e não tratadas são comparáveis em características observáveis relevantes. Neste trabalho, essa comparação é feita a partir de três dimensões principais: localização geográfica da escola, medida por latitude e longitude; nível socioeconômico dos alunos; e infraestrutura digital prévia à implementação do CMSP.
+
+O pareamento não substitui a estratégia de identificação por DiD, mas é utilizado como uma etapa auxiliar para construir um grupo de comparação mais semelhante ao grupo tratado. Em seguida, as trajetórias prévias dos resultados educacionais são comparadas graficamente, de modo a avaliar se a hipótese de tendências paralelas é plausível antes da implementação do tratamento.
+
+```{r setup_matching, include=FALSE, echo=FALSE, message=FALSE, warning=FALSE}
+# ------------------------------------------------------------
+# Funções auxiliares
+# ------------------------------------------------------------
+
+normalizar_codigo <- function(x) {
+  x <- as.character(x)
+  x <- gsub("\\s+", " ", trimws(x))
+  x <- gsub("\\.0$", "", x)
+  x <- gsub("[^0-9]", "", x)
+  x <- sub("^0+", "", x)
+  x[x == ""] <- NA_character_
+  x
+}
+
+converter_nse_ord <- function(x) {
+  z <- toupper(iconv(as.character(x), to = "ASCII//TRANSLIT"))
+  
+  digito <- regmatches(z, regexpr("[0-9]+", z))
+  out <- suppressWarnings(as.numeric(digito))
+  
+  out[is.na(out) & grepl("VI", z)] <- 6
+  out[is.na(out) & grepl("V", z)] <- 5
+  out[is.na(out) & grepl("IV", z)] <- 4
+  out[is.na(out) & grepl("III", z)] <- 3
+  out[is.na(out) & grepl("II", z)] <- 2
+  out[is.na(out) & grepl("I", z)] <- 1
+  
+  out
+}
+
+wmean <- function(x, w = NULL) {
+  if (all(is.na(x))) return(NA_real_)
+  
+  if (is.null(w)) {
+    return(mean(x, na.rm = TRUE))
+  }
+  
+  weighted.mean(x, w, na.rm = TRUE)
+}
+
+smd_num <- function(dt, var, treat_var, w_var = NULL) {
+  
+  x <- dt[[var]]
+  t <- dt[[treat_var]]
+  
+  if (is.null(w_var)) {
+    w <- rep(1, nrow(dt))
+  } else {
+    w <- dt[[w_var]]
+  }
+  
+  x1 <- x[t == 1]
+  x0 <- x[t == 0]
+  w1 <- w[t == 1]
+  w0 <- w[t == 0]
+  
+  m1 <- wmean(x1, w1)
+  m0 <- wmean(x0, w0)
+  
+  sd_pool <- sqrt((stats::var(x1, na.rm = TRUE) + stats::var(x0, na.rm = TRUE)) / 2)
+  
+  if (is.na(sd_pool) || sd_pool == 0) {
+    return(NA_real_)
+  }
+  
+  (m1 - m0) / sd_pool
+}
+
+rotulo_outcome <- function(x) {
+  out <- as.character(x)
+  out[out == "ideb"] <- "IDEB"
+  out[out == "nota_saeb_matematica"] <- "SAEB Matematica"
+  out[out == "nota_saeb_lingua_portuguesa"] <- "SAEB Portugues"
+  return(out)
+}
+
+outcomes_principais <- c("ideb", "nota_saeb_matematica", "nota_saeb_lingua_portuguesa")
+
+anos_pre_cmsp <- c(2015L, 2017L, 2019L)
+```
+
+
+```{r padronizacao, include=FALSE, echo=FALSE, message=FALSE, warning=FALSE}
+# ------------------------------------------------------------
+# Padronização das bases carregadas
+# ------------------------------------------------------------
+
+setDT(escolas_ativas)
+setDT(ideb_painel)
+setDT(censo_informatizacao_painel)
+setDT(painel_ideb_informatizacao)
+
+# Metadados das escolas usando a chave da Base dos Dados/INEP
+escolas_meta <- copy(escolas_ativas)
+
+escolas_meta[
+  ,
+  codigo_escola_sp := normalizar_codigo(codigo_escola)
+]
+
+escolas_meta[
+  ,
+  codigo_escola := normalizar_codigo(codigo_escola_mec)
+]
+
+escolas_meta[
+  is.na(codigo_escola),
+  codigo_escola := codigo_escola_sp
+]
+
+escolas_meta[
+  ,
+  nse_ord := converter_nse_ord(nivel_socioeconomico)
+]
+
+escolas_meta <- unique(
+  escolas_meta,
+  by = "codigo_escola"
+)
+
+# Painel principal
+painel_analise <- copy(painel_ideb_informatizacao)
+
+painel_analise[
+  ,
+  codigo_escola := normalizar_codigo(codigo_escola)
+]
+
+painel_analise[
+  ,
+  ano := as.integer(ano)
+]
+
+# Adiciona metadados caso ainda não estejam no painel
+cols_meta <- c(
+  "codigo_escola",
+  "nome_escola",
+  "municipio",
+  "diretoria",
+  "localizacao",
+  "nivel_socioeconomico",
+  "nse_ord",
+  "latitude",
+  "longitude",
+  "tratamento_cmsp",
+  "tratamento_cmsp_intensidade",
+  "g_cmsp",
+  "grupo_cmsp"
+)
+
+cols_meta <- cols_meta[cols_meta %in% names(escolas_meta)]
+cols_add <- c("codigo_escola", setdiff(cols_meta, names(painel_analise)))
+
+if (length(cols_add) > 1) {
+  painel_analise <- merge(
+    painel_analise,
+    escolas_meta[, ..cols_add],
+    by = "codigo_escola",
+    all.x = TRUE,
+    sort = FALSE
+  )
+}
+
+# Garante variáveis de tratamento CMSP
+if (!"g_cmsp" %in% names(painel_analise)) {
+  stop("A variável g_cmsp não foi encontrada. Refaça o RScript de construção das bases com g_cmsp.")
+}
+
+painel_analise[
+  ,
+  tratado_cmsp := as.integer(g_cmsp > 0)
+]
+
+painel_analise[
+  ,
+  grupo_cmsp_relatorio := fifelse(
+    tratado_cmsp == 1L,
+    "Tratadas pelo CMSP",
+    "Nao tratadas pelo CMSP"
+  )
+]
+
+# Indicador prévio de informatização: último valor observado até 2019
+info_pre_cmsp <- censo_informatizacao_painel[
+  ano <= 2019,
+  .SD[which.max(ano)],
+  by = codigo_escola
+]
+
+info_pre_cmsp <- info_pre_cmsp[
+  ,
+  .(
+    codigo_escola = normalizar_codigo(codigo_escola),
+    info_ped_pre = trat_informatizacao_pedagogica,
+    internet_pre = trat_internet_alunos,
+    lab_info_pre = trat_lab_info,
+    dispositivo_pre = trat_dispositivo_aluno
+  )
+]
+
+# Baseline de desempenho em 2019
+baseline_2019 <- painel_analise[
+  ano == 2019,
+  .(
+    ideb_pre_2019 = mean(ideb, na.rm = TRUE),
+    mat_pre_2019 = mean(nota_saeb_matematica, na.rm = TRUE),
+    lp_pre_2019 = mean(nota_saeb_lingua_portuguesa, na.rm = TRUE)
+  ),
+  by = codigo_escola
+]
+
+baseline_2019[
+  is.nan(ideb_pre_2019),
+  ideb_pre_2019 := NA_real_
+]
+
+baseline_2019[
+  is.nan(mat_pre_2019),
+  mat_pre_2019 := NA_real_
+]
+
+baseline_2019[
+  is.nan(lp_pre_2019),
+  lp_pre_2019 := NA_real_
+]
+```
+
+```{r analise_descritiva, message=FALSE, warning=FALSE, echo=FALSE, results='asis'}
+# ------------------------------------------------------------
+# Funcao segura para tabelas no RMarkdown/PDF
+# ------------------------------------------------------------
+
+limpar_texto_tabela <- function(x) {
+  if (!is.character(x)) return(x)
+  
+  x <- as.character(x)
+  x <- iconv(x, from = "", to = "UTF-8", sub = "")
+  
+  idx <- is.na(x)
+  if (any(idx)) {
+    x[idx] <- ""
+  }
+  
+  x
+}
+
+limpar_dt_tabela <- function(dt) {
+  dt <- copy(dt)
+  
+  for (col in names(dt)) {
+    if (is.character(dt[[col]])) {
+      data.table::set(dt, j = col, value = limpar_texto_tabela(dt[[col]]))
+    }
+  }
+  
+  names(dt) <- limpar_texto_tabela(names(dt))
+  dt
+}
+
+kable_safe <- function(dt, caption = NULL, ...) {
+  dt <- limpar_dt_tabela(dt)
+  
+  if (!is.null(caption)) {
+    caption <- limpar_texto_tabela(caption)
+  }
+  
+  knitr::kable(
+    dt,
+    caption = caption,
+    booktabs = TRUE,
+    ...
+  )
+}
+
+# ------------------------------------------------------------
+# 1. Cobertura da amostra
+# ------------------------------------------------------------
+
+tab_cobertura <- painel_analise[
+  ,
+  .(
+    escolas = uniqueN(codigo_escola),
+    observacoes = .N,
+    obs_com_ideb = sum(!is.na(ideb)),
+    obs_com_matematica = sum(!is.na(nota_saeb_matematica)),
+    obs_com_portugues = sum(!is.na(nota_saeb_lingua_portuguesa))
+  ),
+  by = .(ano, anos_escolares)
+][order(anos_escolares, ano)]
+
+kable_safe(
+  tab_cobertura,
+  caption = "Cobertura da amostra por ano e etapa escolar"
+)
+
+# ------------------------------------------------------------
+# 2. Composicao das escolas segundo exposicao ao CMSP
+# ------------------------------------------------------------
+
+# Recria o grupo sem acento para evitar erro de UTF-8
+painel_analise[
+  ,
+  grupo_cmsp_relatorio := fifelse(
+    tratado_cmsp == 1L,
+    "Tratadas pelo CMSP",
+    "Nao tratadas pelo CMSP"
+  )
+]
+
+tab_cmsp <- unique(
+  painel_analise[
+    ,
+    .(
+      codigo_escola,
+      tratado_cmsp,
+      grupo_cmsp_relatorio,
+      tratamento_cmsp_intensidade,
+      localizacao,
+      nivel_socioeconomico
+    )
+  ],
+  by = "codigo_escola"
+)[
+  ,
+  .(
+    escolas = .N,
+    intensidade_media = round(mean(tratamento_cmsp_intensidade, na.rm = TRUE), 2),
+    intensidade_mediana = round(median(tratamento_cmsp_intensidade, na.rm = TRUE), 2)
+  ),
+  by = grupo_cmsp_relatorio
+][order(grupo_cmsp_relatorio)]
+
+kable_safe(
+  tab_cmsp,
+  caption = "Composicao das escolas segundo exposicao ao CMSP"
+)
+
+# ------------------------------------------------------------
+# 3. Composicao das escolas segundo informatizacao
+# ------------------------------------------------------------
+
+tab_info <- unique(
+  censo_informatizacao_painel[
+    ,
+    .(
+      codigo_escola,
+      grupo_informatizacao,
+      g_info,
+      ever_treated_info,
+      always_treated_info,
+      left_censored_info,
+      reverte_tratamento_info
+    )
+  ],
+  by = "codigo_escola"
+)
+
+tab_info_resumo <- tab_info[
+  ,
+  .(
+    escolas = .N,
+    percentual = round(100 * .N / nrow(tab_info), 2)
+  ),
+  by = grupo_informatizacao
+][order(-escolas)]
+
+kable_safe(
+  tab_info_resumo,
+  caption = "Composicao das escolas segundo trajetoria de informatizacao"
+)
+```
+
+
+## Pareamento das escolas tratadas e não tratadas pelo CMSP
+
+O pareamento foi realizado no nível da escola. As escolas tratadas pelo CMSP foram pareadas com escolas não tratadas a partir de localização geográfica, nível socioeconômico, localização urbana/rural, nível de informatização prévio. A ideia é construir um grupo de comparação mais semelhante ao grupo tratado antes da estimação por DiD.
+
+```{r diagnostico_matching_cmsp, results='asis', echo=FALSE, message=FALSE, warning=FALSE}
+# ------------------------------------------------------------
+# Diagnóstico: onde o matching está perdendo grupos?
+# ------------------------------------------------------------
+
+base_match0 <- unique(
+  painel_analise[
+    ,
+    .(
+      codigo_escola,
+      tratado_cmsp,
+      localizacao,
+      latitude,
+      longitude,
+      nse_ord
+    )
+  ],
+  by = "codigo_escola"
+)
+
+base_match0 <- merge(
+  base_match0,
+  info_pre_cmsp,
+  by = "codigo_escola",
+  all.x = TRUE,
+  sort = FALSE
+)
+
+base_match0 <- merge(
+  base_match0,
+  baseline_2019,
+  by = "codigo_escola",
+  all.x = TRUE,
+  sort = FALSE
+)
+
+# Informatização ausente será tratada como ausência de informação prévia
+base_match0[
+  is.na(info_ped_pre),
+  info_ped_pre := 0L
+]
+
+restricoes <- list(
+  "Base inicial" = rep(TRUE, nrow(base_match0)),
+  "Com latitude" = !is.na(base_match0$latitude),
+  "Com longitude" = !is.na(base_match0$longitude),
+  "Com NSE" = !is.na(base_match0$nse_ord),
+  "Com informatizacao previa" = !is.na(base_match0$info_ped_pre),
+  "Com IDEB 2019" = !is.na(base_match0$ideb_pre_2019),
+  "Com localizacao" = !is.na(base_match0$localizacao)
+)
+
+idx <- rep(TRUE, nrow(base_match0))
+
+tab_diag_match <- rbindlist(
+  lapply(names(restricoes), function(nm) {
+    
+    idx <<- idx & restricoes[[nm]]
+    
+    base_match0[
+      idx,
+      .(
+        etapa = nm,
+        escolas = .N,
+        tratadas = sum(tratado_cmsp == 1L, na.rm = TRUE),
+        controles = sum(tratado_cmsp == 0L, na.rm = TRUE),
+        grupos = uniqueN(tratado_cmsp)
+      )
+    ]
+  }),
+  use.names = TRUE
+)
+
+kable_safe(
+  tab_diag_match,
+  caption = "Diagnostico da perda de observacoes no matching CMSP"
+)
+```
+
+```{r tab_pareamento, message=FALSE, warning=FALSE}
+tab_match_cmsp <- rbindlist(
+  list(
+    base_match_cmsp[
+      ,
+      .(
+        amostra = "Antes do matching",
+        escolas = .N,
+        tratadas = sum(tratado_cmsp == 1L),
+        controles = sum(tratado_cmsp == 0L),
+        lat_media = round(mean(latitude, na.rm = TRUE), 4),
+        lon_media = round(mean(longitude, na.rm = TRUE), 4),
+        nse_medio = round(mean(nse_ord, na.rm = TRUE), 2),
+        info_previa_media = round(mean(info_ped_pre, na.rm = TRUE), 2),
+        ideb_2019_medio = round(mean(ideb_pre_2019, na.rm = TRUE), 2)
+      )
+    ],
+    base_match_cmsp_pareada[
+      ,
+      .(
+        amostra = "Depois do matching",
+        escolas = .N,
+        tratadas = sum(tratado_cmsp == 1L),
+        controles = sum(tratado_cmsp == 0L),
+        lat_media = round(mean(latitude, na.rm = TRUE), 4),
+        lon_media = round(mean(longitude, na.rm = TRUE), 4),
+        nse_medio = round(mean(nse_ord, na.rm = TRUE), 2),
+        info_previa_media = round(mean(info_ped_pre, na.rm = TRUE), 2),
+        ideb_2019_medio = round(mean(ideb_pre_2019, na.rm = TRUE), 2)
+      )
+    ]
+  ),
+  use.names = TRUE
+)
+
+kable(
+  tab_match_cmsp,
+  caption = "Características médias da amostra antes e depois do matching",
+  booktabs = TRUE
+)
+```
+
+```{r balanceamento, message=FALSE, warning=FALSE}
+vars_balance <- c(
+  "latitude",
+  "longitude",
+  "nse_ord",
+  "info_ped_pre",
+  "ideb_pre_2019"
+)
+
+tab_balance_antes <- data.table(
+  variavel = vars_balance,
+  smd = sapply(
+    vars_balance,
+    function(v) smd_num(base_match_cmsp, v, "tratado_cmsp")
+  ),
+  amostra = "Antes do matching"
+)
+
+tab_balance_depois <- data.table(
+  variavel = vars_balance,
+  smd = sapply(
+    vars_balance,
+    function(v) smd_num(base_match_cmsp_pareada, v, "tratado_cmsp", "weights")
+  ),
+  amostra = "Depois do matching"
+)
+
+tab_balance <- rbindlist(
+  list(tab_balance_antes, tab_balance_depois),
+  use.names = TRUE
+)
+
+tab_balance[
+  ,
+  smd_abs := abs(smd)
+]
+
+tab_balance[
+  ,
+  smd := round(smd, 3)
+]
+
+tab_balance[
+  ,
+  smd_abs := round(smd_abs, 3)
+]
+
+kable(
+  tab_balance[order(variavel, amostra)],
+  caption = "Balanceamento das covariadas antes e depois do matching: diferença média padronizada",
+  booktabs = TRUE
+)
+```
+
+```{r plot_balanceamento, message=FALSE, warning=FALSE}
+ggplot(
+  tab_balance,
+  aes(
+    x = reorder(variavel, smd_abs),
+    y = smd_abs,
+    group = amostra,
+    shape = amostra
+  )
+) +
+  geom_hline(yintercept = 0.10, linetype = "dashed") +
+  geom_point(size = 2.6, position = position_dodge(width = 0.4)) +
+  coord_flip() +
+  labs(
+    x = "Covariável",
+    y = "|Diferença média padronizada|",
+    shape = "Amostra"
+  ) +
+  theme_minimal()
+
+```
+
+
+# Tendências paralelas prévias: CMSP
+
+A figura abaixo compara a trajetória média dos resultados educacionais antes da primeira exposição ao CMSP, restringindo a análise à amostra pareada. O objetivo é avaliar se, antes da implementação da plataforma, as escolas tratadas e as escolas de comparação apresentavam tendências semelhantes nos resultados educacionais.
+
+```{r tendencia_paralelas, message=FALSE, warning=FALSE}
+painel_pre_cmsp_match <- painel_analise[
+  codigo_escola %in% ids_match_cmsp &
+    ano %in% anos_pre_cmsp
+]
+
+pesos_cmsp <- base_match_cmsp_pareada[
+  ,
+  .(
+    codigo_escola,
+    weights
+  )
+]
+
+painel_pre_cmsp_match <- merge(
+  painel_pre_cmsp_match,
+  pesos_cmsp,
+  by = "codigo_escola",
+  all.x = TRUE,
+  sort = FALSE
+)
+
+painel_pre_cmsp_long <- melt(
+  painel_pre_cmsp_match,
+  id.vars = c(
+    "codigo_escola",
+    "ano",
+    "anos_escolares",
+    "grupo_cmsp_relatorio",
+    "weights"
+  ),
+  measure.vars = outcomes_principais,
+  variable.name = "outcome",
+  value.name = "valor"
+)
+
+painel_pre_cmsp_long[
+  ,
+  outcome := rotulo_outcome(outcome)
+]
+
+tab_pre_cmsp_match <- painel_pre_cmsp_long[
+  !is.na(valor),
+  .(
+    media = wmean(valor, weights),
+    escolas = uniqueN(codigo_escola)
+  ),
+  by = .(ano, anos_escolares, grupo_cmsp_relatorio, outcome)
+]
+
+ggplot(
+  tab_pre_cmsp_match,
+  aes(
+    x = ano,
+    y = media,
+    group = grupo_cmsp_relatorio,
+    linetype = grupo_cmsp_relatorio
+  )
+) +
+  geom_line(linewidth = 0.9) +
+  geom_point(size = 1.8) +
+  facet_grid(outcome ~ anos_escolares, scales = "free_y") +
+  scale_x_continuous(breaks = anos_pre_cmsp) +
+  labs(
+    title = "Tendências prévias na amostra pareada",
+    subtitle = "Comparação entre escolas tratadas pelo CMSP e escolas de controle pareadas",
+    x = "Ano",
+    y = "Média do resultado",
+    linetype = "Grupo"
+  ) +
+  theme_minimal()
+```
+
+
+```{r tendencia_grupos, message=FALSE, warning=FALSE}
+tab_dif_pre_cmsp <- tab_pre_cmsp_match[
+  ,
+  .(
+    media_tratadas = media[grupo_cmsp_relatorio == "Tratadas pelo CMSP"][1],
+    media_controles = media[grupo_cmsp_relatorio == "Não tratadas pelo CMSP"][1]
+  ),
+  by = .(ano, anos_escolares, outcome)
+]
+
+tab_dif_pre_cmsp[
+  ,
+  diferenca := round(media_tratadas - media_controles, 3)
+]
+
+tab_dif_pre_cmsp[
+  ,
+  `:=`(
+    media_tratadas = round(media_tratadas, 3),
+    media_controles = round(media_controles, 3)
+  )
+]
+
+kable(
+  tab_dif_pre_cmsp[order(outcome, anos_escolares, ano)],
+  caption = "Diferenças médias prévias entre tratadas e controles na amostra pareada",
+  booktabs = TRUE
+)
+```
+
+```{r evol_informatizacao, message=FALSE, warning=FALSE}
+tratamentos_info <- c(
+  "trat_internet_alunos",
+  "trat_lab_info",
+  "trat_dispositivo_aluno",
+  "trat_informatizacao_basica",
+  "trat_informatizacao_pedagogica",
+  "trat_informatizacao_completa"
+)
+
+tab_info_ano <- censo_informatizacao_painel[
+  ,
+  lapply(
+    .SD,
+    function(x) round(100 * mean(x == 1L, na.rm = TRUE), 2)
+  ),
+  by = ano,
+  .SDcols = tratamentos_info
+]
+
+tab_info_ano_long <- melt(
+  tab_info_ano,
+  id.vars = "ano",
+  variable.name = "indicador",
+  value.name = "percentual"
+)
+
+tab_info_ano_long[
+  ,
+  indicador := fcase(
+    indicador == "trat_internet_alunos", "Internet para alunos",
+    indicador == "trat_lab_info", "Laboratório de informática",
+    indicador == "trat_dispositivo_aluno", "Dispositivo para alunos",
+    indicador == "trat_informatizacao_basica", "Informatização básica",
+    indicador == "trat_informatizacao_pedagogica", "Informatização pedagógica",
+    indicador == "trat_informatizacao_completa", "Informatização completa"
+  )
+]
+
+ggplot(
+  tab_info_ano_long,
+  aes(
+    x = ano,
+    y = percentual,
+    group = indicador,
+    linetype = indicador
+  )
+) +
+  geom_line(linewidth = 0.9) +
+  geom_point(size = 1.7) +
+  labs(
+    title = "Evolução da infraestrutura digital das escolas",
+    x = "Ano",
+    y = "% de escolas com indicador = 1",
+    linetype = "Indicador"
+  ) +
+  theme_minimal()
+```
+
+Amostra pareada para o DiD
+
+A partir do pareamento, cria-se uma base restrita que pode ser usada como especificação complementar no estimador de Callaway e Sant'Anna. A estimação principal pode ser feita na amostra completa, enquanto a amostra pareada serve como exercício de robustez.
+
+
+```{r evol_informatizacao, message=FALSE, warning=FALSE}
+painel_did_cmsp_match <- painel_analise[
+  codigo_escola %in% ids_match_cmsp
+]
+
+painel_did_cmsp_match[
+  ,
+  g_did_cmsp := fifelse(g_cmsp > 0L, g_cmsp, 0L)
+]
+
+painel_did_cmsp_match <- painel_did_cmsp_match[
+  ,
+  .(
+    codigo_escola,
+    ano,
+    anos_escolares,
+    
+    ideb,
+    nota_saeb_matematica,
+    nota_saeb_lingua_portuguesa,
+    indicador_rendimento,
+    nota_saeb_media_padronizada,
+    
+    g_did_cmsp,
+    tratado_cmsp,
+    
+    localizacao,
+    nivel_socioeconomico,
+    nse_ord,
+    latitude,
+    longitude,
+    
+    trat_informatizacao_pedagogica,
+    grupo_informatizacao,
+    g_info
+  )
+]
+```
+
+
+```{r painel_did, message=FALSE, warning=FALSE}
+tab_base_did_match <- painel_did_cmsp_match[
+  ,
+  .(
+    escolas = uniqueN(codigo_escola),
+    observacoes = .N,
+    primeiro_ano = min(ano, na.rm = TRUE),
+    ultimo_ano = max(ano, na.rm = TRUE)
+  ),
+  by = .(anos_escolares, tratado_cmsp)
+][
+  ,
+  grupo := fifelse(tratado_cmsp == 1L, "Tratadas", "Controles")
+][
+  ,
+  .(
+    anos_escolares,
+    grupo,
+    escolas,
+    observacoes,
+    primeiro_ano,
+    ultimo_ano
+  )
+][order(anos_escolares, grupo)]
+
+kable(
+  tab_base_did_match,
+  caption = "Amostra pareada disponível para estimação DiD",
+  booktabs = TRUE
+)
+```

@@ -75,31 +75,38 @@ prefixo_ibge_uf <- "35"
 
 \vspace{2.2cm}
 
-{\Huge \textbf{Avaliação de Impacto em Políticas Educacionais} \par}
-
-\vspace{0.7cm}
-
-{\Large \textbf{Construção da Base Analítica e Estratégia Empírica} \par}
+{\Huge \textbf{Avaliação da Informatização no Desempenho Escolar} \par}
 
 \vspace{2.5cm}
 
-{\large Felipe Ferreira \par}
+{\large Felipe Ferreira Alexandre 13693144  \par}
 
 \vspace{0.4cm}
 
-{\large São Paulo \par}
+{\large Andrei  \par}
 
 \vspace{0.4cm}
 
-{\large `r format(Sys.Date(), "%d/%m/%Y")` \par}
+{\large 22/06/2026  \par}
 
 \vfill
 
 \end{titlepage}
 
-```{r consolidacao_base_painel, include=FALSE}
+```{r consolidacao_escolas_ativas, include=FALSE}
 # ------------------------------------------------------------
-# 1. Diretório dos dados
+# Pacotes
+# ------------------------------------------------------------
+
+library(data.table)
+library(janitor)
+
+data.table::setDTthreads(
+  max(1L, parallel::detectCores(logical = TRUE) - 1L)
+)
+
+# ------------------------------------------------------------
+# Diretório dos dados
 # ------------------------------------------------------------
 
 dir_dados <- "C:\\Users\\Felipe\\Downloads\\aps\\escolas_ativas"
@@ -108,312 +115,932 @@ arquivos_endereco <- list.files(
   path = dir_dados,
   pattern = "^ENDERECO_ESCOLAS.*\\.csv$",
   full.names = TRUE
-)
+) |> sort()
 
 arquivo_inse <- list.files(
   path = dir_dados,
   pattern = "^INSE_2019_ESCOLAS.*\\.csv$",
   full.names = TRUE
-)
+) |> sort()
+
+arquivos_cmsp <- list.files(
+  path = dir_dados,
+  pattern = "^TB_CMSP.*\\.csv$",
+  full.names = TRUE
+) |> sort()
+
+if (length(arquivos_endereco) == 0) {
+  stop("Nenhum arquivo ENDERECO_ESCOLAS foi encontrado.")
+}
+```
 
 
+```{r funcoes_auxiliares, include=FALSE}
 # ------------------------------------------------------------
-# 3. Funções auxiliares
+# Funções auxiliares
 # ------------------------------------------------------------
 
-ler_csv_base <- function(arquivo) {
-  readr::read_delim(
+limpar_nomes <- function(nomes) {
+  nomes <- enc2utf8(nomes)
+  nomes <- gsub("^\\ufeff", "", nomes)
+  nomes <- gsub("^ï»¿", "", nomes)
+  janitor::make_clean_names(nomes)
+}
+
+mapear_colunas <- function(arquivo) {
+  cabecalho <- data.table::fread(
     file = arquivo,
-    delim = ";",
-    locale = readr::locale(
-      encoding = "Latin1",
-      decimal_mark = ","
-    ),
-    col_types = readr::cols(.default = readr::col_character()),
-    trim_ws = TRUE,
-    show_col_types = FALSE
-  ) |>
-    janitor::clean_names()
+    nrows = 0,
+    sep = "auto",
+    encoding = "Latin-1",
+    showProgress = FALSE
+  )
+  
+  data.table(
+    original = names(cabecalho),
+    clean = limpar_nomes(names(cabecalho))
+  )
 }
 
-coluna <- function(df, nome) {
-  if (nome %in% names(df)) {
-    as.character(df[[nome]])
+ler_csv_dt <- function(arquivo, select_clean = NULL) {
+  
+  mapa <- mapear_colunas(arquivo)
+  
+  if (!is.null(select_clean)) {
+    cols_para_ler <- mapa[clean %in% select_clean, original]
+    
+    if (length(cols_para_ler) == 0) {
+      stop(paste0(
+        "Nenhuma coluna esperada foi encontrada em: ",
+        basename(arquivo)
+      ))
+    }
+    
+    dt <- data.table::fread(
+      file = arquivo,
+      sep = "auto",
+      encoding = "Latin-1",
+      colClasses = "character",
+      select = cols_para_ler,
+      na.strings = c("", "NA", "NaN", "NULL"),
+      showProgress = FALSE
+    )
+    
   } else {
-    rep(NA_character_, nrow(df))
+    
+    dt <- data.table::fread(
+      file = arquivo,
+      sep = "auto",
+      encoding = "Latin-1",
+      colClasses = "character",
+      na.strings = c("", "NA", "NaN", "NULL"),
+      showProgress = FALSE
+    )
   }
+  
+  data.table::setnames(dt, limpar_nomes(names(dt)))
+  dt
 }
 
-coluna_primeira <- function(df, nomes) {
-  nomes_existentes <- nomes[nomes %in% names(df)]
+pegar_coluna <- function(dt, nomes) {
+  nomes_existentes <- nomes[nomes %in% names(dt)]
   
   if (length(nomes_existentes) == 0) {
-    return(rep(NA_character_, nrow(df)))
+    return(rep(NA_character_, nrow(dt)))
   }
   
-  saida <- as.character(df[[nomes_existentes[1]]])
+  lista <- lapply(nomes_existentes, function(nm) as.character(dt[[nm]]))
   
-  if (length(nomes_existentes) > 1) {
-    for (nm in nomes_existentes[-1]) {
-      saida <- dplyr::coalesce(saida, as.character(df[[nm]]))
+  if (length(lista) == 1) {
+    lista[[1]]
+  } else {
+    do.call(data.table::fcoalesce, lista)
+  }
+}
+
+txt <- function(x) {
+  x <- enc2utf8(as.character(x))
+  x <- gsub("\\s+", " ", trimws(x))
+  x[x == ""] <- NA_character_
+  x
+}
+
+normalizar_codigo <- function(x) {
+  x <- txt(x)
+  x <- gsub("\\.0$", "", x)
+  x <- gsub("[^0-9]", "", x)
+  x <- sub("^0+", "", x)
+  x[x == ""] <- NA_character_
+  x
+}
+
+num_br <- function(x) {
+  x <- txt(x)
+  x <- gsub(",", ".", x)
+  x <- gsub("[^0-9\\.\\-]", "", x)
+  suppressWarnings(as.numeric(x))
+}
+
+data_br <- function(x) {
+  x <- txt(x)
+  
+  saida <- data.table::as.IDate(rep(NA_character_, length(x)))
+  
+  formatos <- c(
+    "%Y-%m-%d",
+    "%d/%m/%Y",
+    "%d-%m-%Y",
+    "%Y%m%d"
+  )
+  
+  for (fmt in formatos) {
+    idx <- is.na(saida) & !is.na(x)
+    if (any(idx)) {
+      saida[idx] <- suppressWarnings(
+        data.table::as.IDate(x[idx], format = fmt)
+      )
     }
   }
   
   saida
 }
 
-txt <- function(x) {
-  x |>
-    as.character() |>
-    stringr::str_squish() |>
-    dplyr::na_if("")
-}
-
-num_br <- function(x) {
-  x |>
-    as.character() |>
-    stringr::str_replace_all(",", ".") |>
-    readr::parse_number(
-      locale = readr::locale(decimal_mark = ".")
-    )
-}
-
 extrair_ano <- function(arquivo) {
-  basename(arquivo) |>
-    stringr::str_extract("20\\d{2}") |>
-    as.integer()
+  ano <- regmatches(
+    basename(arquivo),
+    regexpr("20\\d{2}", basename(arquivo))
+  )
+  
+  if (length(ano) == 0) {
+    NA_integer_
+  } else {
+    as.integer(ano)
+  }
 }
 
-normalizar_codigo <- function(x) {
-  x |>
-    as.character() |>
-    stringr::str_squish() |>
-    stringr::str_replace("\\.0$", "") |>
-    stringr::str_extract("[0-9]+")
+primeira_data <- function(x) {
+  if (all(is.na(x))) {
+    return(data.table::as.IDate(NA_character_))
+  }
+  min(x, na.rm = TRUE)
 }
+```
 
+
+```{r endereco_escola_level, include=FALSE}
 # ------------------------------------------------------------
-# 4. Padronização das bases anuais de endereço
+# ENDERECO_ESCOLAS
 # ------------------------------------------------------------
 
 padronizar_endereco <- function(arquivo) {
   
-  df <- ler_csv_base(arquivo)
-  ano_base <- extrair_ano(arquivo)
+  message("Lendo endereço: ", basename(arquivo))
   
-  tibble::tibble(
-    ano = ano_base,
+  cols_endereco <- c(
+    "de",
+    "diretoria",
+    "diretoria_ensino",
+    "mun",
+    "municipio",
+    "distr",
+    "distrito",
+    "cod_esc",
+    "codigo_escola",
+    "codigo_da_escola",
+    "codescmec",
+    "codigo_mec",
+    "cod_mec",
+    "nomesc",
+    "nome_escola",
+    "nome_da_escola",
+    "situacao",
+    "codsit",
+    "situacao_funcionamento",
+    "cep",
+    "baiesc",
+    "bairro",
+    "zona",
+    "localizacao",
+    "ds_latitude",
+    "latitude",
+    "ds_longitude",
+    "longitude"
+  )
+  
+  dt <- ler_csv_dt(arquivo, select_clean = cols_endereco)
+  
+  out <- data.table(
+    ano_endereco = extrair_ano(arquivo),
     
-    nome_rede = txt(coluna(df, "nomedep")),
-    diretoria_ensino = txt(coluna(df, "de")),
-    municipio = txt(coluna(df, "mun")),
-    cd_ibge = txt(coluna(df, "cd_ibge")),
-    distrito = txt(coluna(df, "distr")),
+    codigo_escola = normalizar_codigo(
+      pegar_coluna(dt, c("cod_esc", "codigo_escola", "codigo_da_escola"))
+    ),
     
-    cod_esc = txt(coluna(df, "cod_esc")),
-    codescmec = txt(coluna(df, "codescmec")),
-    nome_escola = txt(coluna(df, "nomesc")),
+    codigo_escola_mec = normalizar_codigo(
+      pegar_coluna(dt, c("codescmec", "codigo_mec", "cod_mec"))
+    ),
+    
+    nome_escola = txt(
+      pegar_coluna(dt, c("nomesc", "nome_escola", "nome_da_escola"))
+    ),
+    
+    distrito = txt(
+      pegar_coluna(dt, c("distr", "distrito"))
+    ),
+    
+    bairro = txt(
+      pegar_coluna(dt, c("baiesc", "bairro"))
+    ),
+    
+    municipio = txt(
+      pegar_coluna(dt, c("mun", "municipio"))
+    ),
+    
+    diretoria = txt(
+      pegar_coluna(dt, c("de", "diretoria", "diretoria_ensino"))
+    ),
+    
+    localizacao_original = txt(
+      pegar_coluna(dt, c("zona", "localizacao"))
+    ),
+    
+    cep = txt(
+      pegar_coluna(dt, c("cep"))
+    ),
+    
+    latitude = num_br(
+      pegar_coluna(dt, c("ds_latitude", "latitude"))
+    ),
+    
+    longitude = num_br(
+      pegar_coluna(dt, c("ds_longitude", "longitude"))
+    ),
     
     situacao_original = txt(
-      coluna_primeira(df, c("situacao", "codsit"))
-    ),
-    
-    tipo_escola = txt(coluna(df, "tipoesc")),
-    endereco = txt(coluna(df, "endesc")),
-    numero = txt(coluna(df, "numesc")),
-    
-    complemento = txt(
-      coluna_primeira(df, c("complemento", "complend"))
-    ),
-    
-    cep = txt(coluna(df, "cep")),
-    bairro = txt(coluna(df, "baiesc")),
-    zona = txt(coluna(df, "zona")),
-    
-    latitude_original = txt(
-      coluna_primeira(df, c("ds_latitude", "latitude"))
-    ),
-    
-    longitude_original = txt(
-      coluna_primeira(df, c("ds_longitude", "longitude"))
-    ),
-    
-    cod_vinc = txt(coluna(df, "codvinc"))
-  ) |>
-    dplyr::mutate(
-      cod_esc_num = suppressWarnings(as.numeric(cod_esc)),
-      codescmec_num = suppressWarnings(as.numeric(codescmec)),
-      
-      latitude = num_br(latitude_original),
-      longitude = num_br(longitude_original),
-      
-      situacao = dplyr::case_when(
-        stringr::str_to_upper(situacao_original) %in% c("ATIVA", "ATIVO", "1") ~ "Ativa",
-        stringr::str_to_upper(situacao_original) %in% c("INATIVA", "INATIVO", "0") ~ "Inativa",
-        TRUE ~ situacao_original
-      ),
-      
-      id_escola = dplyr::case_when(
-        !is.na(codescmec_num) & codescmec_num > 0 ~ paste0("mec_", codescmec),
-        !is.na(cod_esc_num) ~ paste0("cod_", cod_esc),
-        TRUE ~ paste0("sem_codigo_", ano, "_", dplyr::row_number())
-      )
+      pegar_coluna(dt, c("situacao", "codsit", "situacao_funcionamento"))
     )
+  )
+  
+  out <- out[!is.na(codigo_escola)]
+  
+  out[
+    ,
+    localizacao := fcase(
+      grepl("URB", toupper(localizacao_original)) | localizacao_original == "1",
+      "Urbana",
+      
+      grepl("RUR", toupper(localizacao_original)) | localizacao_original == "2",
+      "Rural",
+      
+      default = localizacao_original
+    )
+  ]
+  
+  out[
+    ,
+    situacao_funcionamento := fcase(
+      toupper(situacao_original) %in% c("ATIVA", "ATIVO", "1", "EM ATIVIDADE"),
+      "Ativa",
+      
+      toupper(situacao_original) %in% c("INATIVA", "INATIVO", "0", "EXTINTA", "EXTINTO", "PARALISADA"),
+      "Inativa",
+      
+      default = situacao_original
+    )
+  ]
+  
+  out[
+    ,
+    completude := 
+      fifelse(!is.na(codigo_escola_mec), 1L, 0L) +
+      fifelse(!is.na(nome_escola), 1L, 0L) +
+      fifelse(!is.na(distrito), 1L, 0L) +
+      fifelse(!is.na(bairro), 1L, 0L) +
+      fifelse(!is.na(municipio), 1L, 0L) +
+      fifelse(!is.na(diretoria), 1L, 0L) +
+      fifelse(!is.na(localizacao), 1L, 0L) +
+      fifelse(!is.na(cep), 1L, 0L) +
+      fifelse(!is.na(latitude), 1L, 0L) +
+      fifelse(!is.na(longitude), 1L, 0L)
+  ]
+  
+  out[
+    ,
+    .(
+      ano_endereco,
+      codigo_escola,
+      codigo_escola_mec,
+      nome_escola,
+      distrito,
+      bairro,
+      municipio,
+      diretoria,
+      localizacao,
+      cep,
+      latitude,
+      longitude,
+      situacao_funcionamento,
+      completude
+    )
+  ]
 }
 
-# ------------------------------------------------------------
-# 5. Construção da base painel escola-ano
-# ------------------------------------------------------------
-
-base_enderecos_bruta <- arquivos_endereco |>
-  sort() |>
-  purrr::map_dfr(padronizar_endereco)
-
-base_painel_escolas <- base_enderecos_bruta |>
-  dplyr::arrange(
-    ano,
-    id_escola,
-    dplyr::desc(!is.na(codescmec_num) & codescmec_num > 0),
-    dplyr::desc(!is.na(latitude)),
-    dplyr::desc(!is.na(longitude))
-  ) |>
-  dplyr::distinct(ano, id_escola, .keep_all = TRUE)
-
-# ------------------------------------------------------------
-# 6. Tratamento da base de INSE
-# ------------------------------------------------------------
-
-inse_raw <- ler_csv_base(arquivo_inse)
-
-possiveis_colunas_inse <- c(
-  "nivel_socioeconomico_dos_alunos",
-  "nivel_socioeconomico",
-  "inse"
+enderecos_bruto <- data.table::rbindlist(
+  lapply(arquivos_endereco, padronizar_endereco),
+  use.names = TRUE,
+  fill = TRUE
 )
 
-coluna_inse <- possiveis_colunas_inse[
-  possiveis_colunas_inse %in% names(inse_raw)
-][1]
+# Prioriza o ano mais recente e, dentro dele, a linha mais completa
+data.table::setorder(
+  enderecos_bruto,
+  codigo_escola,
+  -ano_endereco,
+  -completude
+)
 
-if (is.na(coluna_inse)) {
-  coluna_inse <- names(inse_raw)[
-    stringr::str_detect(names(inse_raw), "socioeconomico|inse")
-  ][1]
-}
+base_escolas <- unique(
+  enderecos_bruto,
+  by = "codigo_escola"
+)
 
-if (is.na(coluna_inse)) {
-  stop("Não foi possível identificar a coluna do índice socioeconômico.")
-}
+# Mantém escolas ativas.
+# Caso alguma linha venha sem situação preenchida, ela é mantida para não perder escola por ausência de metadado.
+base_escolas <- base_escolas[
+  situacao_funcionamento == "Ativa" | is.na(situacao_funcionamento)
+]
 
-inse_2019 <- tibble::tibble(
-  cod_esc = txt(coluna(inse_raw, "cod_esc")),
-  nome_escola_inse = txt(coluna(inse_raw, "nomesc")),
-  diretoria_ensino_inse = txt(coluna(inse_raw, "dir")),
-  municipio_inse = txt(coluna(inse_raw, "mun")),
-  inse_2019 = num_br(inse_raw[[coluna_inse]])
-) |>
-  dplyr::arrange(
-    cod_esc,
-    dplyr::desc(!is.na(inse_2019))
-  ) |>
-  dplyr::distinct(cod_esc, .keep_all = TRUE)
-
-# ------------------------------------------------------------
-# 7. Base final preliminar
-# ------------------------------------------------------------
-
-base_final <- base_painel_escolas |>
-  dplyr::left_join(inse_2019, by = "cod_esc")
+base_escolas <- base_escolas[
+  ,
+  .(
+    codigo_escola,
+    codigo_escola_mec,
+    nome_escola,
+    distrito,
+    bairro,
+    municipio,
+    diretoria,
+    localizacao,
+    cep,
+    latitude,
+    longitude
+  )
+]
 ```
 
-```{r basedosdados_censo_ideb, include=FALSE}
+
+```{r inse_escola_level, include=FALSE}
 # ------------------------------------------------------------
-# 1. Configuração da Base dos Dados
+# INSE
 # ------------------------------------------------------------
 
-basedosdados::set_billing_id("trabalho-aps-500113")
+criar_inse <- function(arquivo_inse) {
+  
+  if (length(arquivo_inse) == 0) {
+    warning("Nenhum arquivo INSE encontrado. nivel_socioeconomico ficará vazio.")
+    
+    return(data.table(
+      codigo_escola = character(),
+      nivel_socioeconomico = character()
+    ))
+  }
+  
+  arquivo <- arquivo_inse[1]
+  message("Lendo INSE: ", basename(arquivo))
+  
+  mapa <- mapear_colunas(arquivo)
+  
+  colunas_codigo <- c(
+    "cod_esc",
+    "codigo_escola",
+    "codigo_da_escola",
+    "co_entidade",
+    "id_escola"
+  )
+  
+  possiveis_colunas_inse <- c(
+    "nivel_socioeconomico_dos_alunos",
+    "nivel_socioeconomico",
+    "nivel_socioeconomico_inse",
+    "inse",
+    "indicador_de_nivel_socioeconomico"
+  )
+  
+  coluna_inse <- mapa[
+    clean %in% possiveis_colunas_inse,
+    clean
+  ][1]
+  
+  if (is.na(coluna_inse)) {
+    coluna_inse <- mapa[
+      grepl("socioeconomico|inse", clean, ignore.case = TRUE),
+      clean
+    ][1]
+  }
+  
+  if (is.na(coluna_inse)) {
+    warning("Não foi possível identificar a coluna do INSE.")
+    
+    return(data.table(
+      codigo_escola = character(),
+      nivel_socioeconomico = character()
+    ))
+  }
+  
+  dt <- ler_csv_dt(
+    arquivo,
+    select_clean = unique(c(colunas_codigo, coluna_inse))
+  )
+  
+  inse <- data.table(
+    codigo_escola = normalizar_codigo(
+      pegar_coluna(dt, colunas_codigo)
+    ),
+    
+    nivel_socioeconomico = txt(
+      dt[[coluna_inse]]
+    )
+  )
+  
+  inse <- inse[!is.na(codigo_escola)]
+  
+  inse[
+    ,
+    flag_inse_preenchido := fifelse(!is.na(nivel_socioeconomico), 1L, 0L)
+  ]
+  
+  data.table::setorder(
+    inse,
+    codigo_escola,
+    -flag_inse_preenchido
+  )
+  
+  inse <- unique(
+    inse,
+    by = "codigo_escola"
+  )
+  
+  inse[
+    ,
+    .(
+      codigo_escola,
+      nivel_socioeconomico
+    )
+  ]
+}
+
+inse_2019 <- criar_inse(arquivo_inse)
+```
+
+
+```{r cmsp_escola_level, include=FALSE}
+# ------------------------------------------------------------
+# CMSP
+# ------------------------------------------------------------
+
+cmsp_vazio <- function() {
+  data.table(
+    codigo_escola = character(),
+    tratamento_cmsp = integer(),
+    tratamento_cmsp_periodo = data.table::as.IDate(character()),
+    tratamento_cmsp_intensidade = numeric()
+  )
+}
+
+agregar_cmsp_arquivo <- function(arquivo) {
+  
+  message("Lendo CMSP: ", basename(arquivo))
+  
+  cols_cmsp <- c(
+    "codigo_escola",
+    "cod_escola",
+    "cod_esc",
+    "codigo_da_escola",
+    "data",
+    "tempo_de_sessao",
+    "tempo_de_sessao_s",
+    "tempo_sessao"
+  )
+  
+  dt <- tryCatch(
+    ler_csv_dt(arquivo, select_clean = cols_cmsp),
+    error = function(e) {
+      warning(
+        "Arquivo CMSP ignorado: ",
+        basename(arquivo),
+        " | ",
+        conditionMessage(e)
+      )
+      return(NULL)
+    }
+  )
+  
+  if (is.null(dt) || nrow(dt) == 0) {
+    return(cmsp_vazio()[, tratamento_cmsp := NULL])
+  }
+  
+  out <- data.table(
+    codigo_escola = normalizar_codigo(
+      pegar_coluna(dt, c("codigo_escola", "cod_escola", "cod_esc", "codigo_da_escola"))
+    ),
+    
+    data_sessao = data_br(
+      pegar_coluna(dt, c("data"))
+    ),
+    
+    tempo_sessao = num_br(
+      pegar_coluna(dt, c("tempo_de_sessao", "tempo_de_sessao_s", "tempo_sessao"))
+    )
+  )
+  
+  out <- out[!is.na(codigo_escola)]
+  
+  if (nrow(out) == 0) {
+    return(cmsp_vazio()[, tratamento_cmsp := NULL])
+  }
+  
+  out[
+    ,
+    .(
+      tratamento_cmsp_periodo = primeira_data(data_sessao),
+      tratamento_cmsp_intensidade = sum(tempo_sessao, na.rm = TRUE)
+    ),
+    by = codigo_escola
+  ]
+}
+
+if (length(arquivos_cmsp) > 0) {
+  
+  cmsp_por_arquivo <- data.table::rbindlist(
+    lapply(arquivos_cmsp, agregar_cmsp_arquivo),
+    use.names = TRUE,
+    fill = TRUE
+  )
+  
+  if (nrow(cmsp_por_arquivo) > 0) {
+    
+    cmsp_escola <- cmsp_por_arquivo[
+      ,
+      .(
+        tratamento_cmsp = 1L,
+        tratamento_cmsp_periodo = primeira_data(tratamento_cmsp_periodo),
+        tratamento_cmsp_intensidade = sum(tratamento_cmsp_intensidade, na.rm = TRUE)
+      ),
+      by = codigo_escola
+    ]
+    
+  } else {
+    cmsp_escola <- cmsp_vazio()
+  }
+  
+} else {
+  
+  warning("Nenhum arquivo CMSP encontrado. tratamento_cmsp ficará igual a 0.")
+  cmsp_escola <- cmsp_vazio()
+}
+```
+
+
+```{r base_final_escola_level, include=FALSE}
+# ------------------------------------------------------------
+# Tabela final: escolas_ativas
+# ------------------------------------------------------------
+
+escolas_ativas <- merge(
+  base_escolas,
+  inse_2019,
+  by = "codigo_escola",
+  all.x = TRUE,
+  sort = FALSE
+)
+
+escolas_ativas <- merge(
+  escolas_ativas,
+  cmsp_escola,
+  by = "codigo_escola",
+  all.x = TRUE,
+  sort = FALSE
+)
+
+escolas_ativas[
+  is.na(tratamento_cmsp),
+  tratamento_cmsp := 0L
+]
+
+escolas_ativas[
+  is.na(tratamento_cmsp_intensidade),
+  tratamento_cmsp_intensidade := 0
+]
+
+# Ordem e seleção final exata das colunas solicitadas
+escolas_ativas <- escolas_ativas[
+  ,
+  .(
+    codigo_escola,
+    codigo_escola_mec,
+    nome_escola,
+    distrito,
+    bairro,
+    municipio,
+    diretoria,
+    localizacao,
+    cep,
+    latitude,
+    longitude,
+    nivel_socioeconomico,
+    tratamento_cmsp,
+    tratamento_cmsp_periodo,
+    tratamento_cmsp_intensidade
+  )
+]
+
+# Exporta a tabela final
+data.table::fwrite(
+  escolas_ativas,
+  file = file.path(dir_dados, "escolas_ativas.csv"),
+  sep = ";",
+  bom = TRUE
+)
+```
+
+
+```{r setup_ideb_censo, include=FALSE}
+# ------------------------------------------------------------
+# Pacotes
+# ------------------------------------------------------------
+
+library(data.table)
+library(janitor)
+library(glue)
+library(basedosdados)
+
+data.table::setDTthreads(
+  max(1L, parallel::detectCores(logical = TRUE) - 1L)
+)
+
+# ------------------------------------------------------------
+# Configurações
+# ------------------------------------------------------------
+
+billing_project_id <- "trabalho-aps-500113"
 
 uf_foco <- "SP"
-prefixo_ibge_uf <- "35"
 
+ano_inicio <- 2015L
+ano_fim <- 2025L
+
+# Indicador que será usado para definir:
+# ano_primeiro_trat_real, g_trat, post, tempo_relativo etc.
+#
+# Alternativas possíveis:
+# "trat_internet_alunos"
+# "trat_lab_info"
+# "trat_dispositivo_aluno"
+# "trat_informatizacao_basica"
+# "trat_informatizacao_pedagogica"
+# "trat_informatizacao_completa"
+
+variavel_tratamento_did <- "trat_informatizacao_pedagogica"
+
+# Ciclo do IDEB observado/esperado no período
+anos_ideb_ciclo <- seq(2015L, 2025L, by = 2L)
+```
+
+
+```{r funcoes_auxiliares_ideb_censo, include=FALSE}
 # ------------------------------------------------------------
-# 2. Função auxiliar para código da escola
+# Funções auxiliares
 # ------------------------------------------------------------
 
 normalizar_codigo <- function(x) {
-  x |>
-    as.character() |>
-    stringr::str_squish() |>
-    stringr::str_replace("\\.0$", "") |>
-    stringr::str_extract("[0-9]+")
+  x <- as.character(x)
+  x <- gsub("\\s+", " ", trimws(x))
+  x <- gsub("\\.0$", "", x)
+  x <- gsub("[^0-9]", "", x)
+  x <- sub("^0+", "", x)
+  x[x == ""] <- NA_character_
+  x
 }
 
-# ------------------------------------------------------------
-# 3. Filtro local: manter apenas escolas de SP
-# ------------------------------------------------------------
+num_bd <- function(x) {
+  x <- as.character(x)
+  x <- gsub(",", ".", x)
+  suppressWarnings(as.numeric(x))
+}
 
-base_final <- base_final |>
-  dplyr::mutate(
-    cd_ibge_norm = normalizar_codigo(cd_ibge),
-    id_escola_bd = normalizar_codigo(codescmec)
-  ) |>
-  dplyr::filter(
-    is.na(cd_ibge_norm) | stringr::str_starts(cd_ibge_norm, prefixo_ibge_uf),
-    !is.na(id_escola_bd)
+binario_bd <- function(x) {
+  x_chr <- toupper(trimws(as.character(x)))
+  
+  saida <- fifelse(
+    x_chr %in% c("1", "SIM", "S", "TRUE", "T"),
+    1L,
+    fifelse(
+      x_chr %in% c("0", "NAO", "NÃO", "N", "FALSE", "F"),
+      0L,
+      NA_integer_
+    )
   )
+  
+  x_num <- suppressWarnings(as.numeric(gsub(",", ".", x_chr)))
+  
+  saida <- fifelse(
+    is.na(saida) & !is.na(x_num) & x_num > 0,
+    1L,
+    saida
+  )
+  
+  saida <- fifelse(
+    is.na(saida) & !is.na(x_num) & x_num == 0,
+    0L,
+    saida
+  )
+  
+  fifelse(is.na(saida), 0L, saida)
+}
 
-# ------------------------------------------------------------
-# 4. Expansão da base para 2015-2017 usando cadastro de 2018
-# ------------------------------------------------------------
-
-base_2018 <- base_final |>
-  dplyr::filter(ano == 2018)
-
-base_2018_replicada <- purrr::map_dfr(
-  2015:2017,
-  \(ano_ref) {
-    base_2018 |>
-      dplyr::mutate(
-        ano = ano_ref,
-        endereco_replicado_2018 = 1L,
-        ano_origem_endereco = 2018L
-      )
+primeiro_ano_ideb_compativel <- function(ano_real, anos_ciclo = anos_ideb_ciclo) {
+  if (is.na(ano_real)) return(NA_integer_)
+  
+  possiveis <- anos_ciclo[anos_ciclo >= ano_real]
+  
+  if (length(possiveis) == 0) {
+    return(NA_integer_)
   }
-)
+  
+  min(possiveis)
+}
+```
 
-base_final <- base_final |>
-  dplyr::mutate(
-    endereco_replicado_2018 = 0L,
-    ano_origem_endereco = ano
-  ) |>
-  dplyr::bind_rows(base_2018_replicada) |>
-  dplyr::filter(ano >= 2015, ano <= 2025) |>
-  dplyr::arrange(ano, id_escola) |>
-  dplyr::distinct(ano, id_escola, .keep_all = TRUE)
 
-ids_escolas_bd <- base_final |>
-  dplyr::distinct(id_escola_bd) |>
-  dplyr::pull(id_escola_bd)
+```{r preselecao_escolas_ideb_censo, include=FALSE}
+# ------------------------------------------------------------
+# Escolas selecionadas previamente
+# ------------------------------------------------------------
+# A Base dos Dados usa id_escola do INEP/MEC.
+# Portanto, a chave preferencial aqui é codigo_escola_mec.
+# Se alguma escola não tiver codigo_escola_mec, usa codigo_escola como fallback.
+
+setDT(escolas_ativas)
+
+escolas_bd <- copy(escolas_ativas)
+
+escolas_bd[
+  ,
+  id_escola_bd := normalizar_codigo(codigo_escola_mec)
+]
+
+escolas_bd[
+  is.na(id_escola_bd),
+  id_escola_bd := normalizar_codigo(codigo_escola)
+]
+
+escolas_bd <- escolas_bd[
+  !is.na(id_escola_bd),
+  .(
+    codigo_escola_original = normalizar_codigo(codigo_escola),
+    codigo_escola_mec = normalizar_codigo(codigo_escola_mec),
+    id_escola_bd
+  )
+]
+
+escolas_bd <- unique(escolas_bd, by = "id_escola_bd")
+
+ids_escolas_bd <- escolas_bd[
+  ,
+  unique(id_escola_bd)
+]
 
 if (length(ids_escolas_bd) == 0) {
-  stop("Nenhum código de escola válido foi encontrado para consulta na Base dos Dados.")
+  stop("Nenhum código de escola válido foi encontrado em escolas_ativas.")
 }
 
 ids_sql <- paste0("'", ids_escolas_bd, "'", collapse = ", ")
+```
 
+
+```{r consulta_ideb_painel, include=FALSE}
 # ------------------------------------------------------------
-# 5. Consulta otimizada ao Censo Escolar
+# IDEB: painel escola-ano-anos_escolares
 # ------------------------------------------------------------
 
-query_censo <- glue::glue("
+query_ideb <- glue("
   WITH escolas_base AS (
     SELECT id_escola
     FROM UNNEST([{ids_sql}]) AS id_escola
   )
 
   SELECT
+    CAST(t.id_escola AS STRING) AS codigo_escola,
     CAST(t.ano AS INT64) AS ano,
-    CAST(t.id_escola AS STRING) AS id_escola_bd,
+
+    CAST(t.anos_escolares AS STRING) AS anos_escolares,
+
+    t.ideb,
+    t.indicador_rendimento,
+    t.nota_saeb_matematica,
+    t.nota_saeb_lingua_portuguesa,
+    t.nota_saeb_media_padronizada
+
+  FROM `basedosdados.br_inep_ideb.escola` AS t
+
+  INNER JOIN escolas_base AS e
+    ON CAST(t.id_escola AS STRING) = e.id_escola
+
+  WHERE t.sigla_uf = '{uf_foco}'
+    AND CAST(t.ano AS INT64) BETWEEN {ano_inicio} AND {ano_fim}
+")
+
+ideb_painel <- basedosdados::read_sql(
+  query = query_ideb,
+  billing_project_id = billing_project_id
+)
+
+setDT(ideb_painel)
+setnames(ideb_painel, janitor::make_clean_names(names(ideb_painel)))
+
+ideb_painel[
+  ,
+  codigo_escola := normalizar_codigo(codigo_escola)
+]
+
+ideb_painel[
+  ,
+  ano := as.integer(ano)
+]
+
+ideb_painel[
+  ,
+  `:=`(
+    ideb = num_bd(ideb),
+    indicador_rendimento = num_bd(indicador_rendimento),
+    nota_saeb_matematica = num_bd(nota_saeb_matematica),
+    nota_saeb_lingua_portuguesa = num_bd(nota_saeb_lingua_portuguesa),
+    nota_saeb_media_padronizada = num_bd(nota_saeb_media_padronizada),
+    anos_escolares = as.character(anos_escolares)
+  )
+]
+
+# Padroniza os nomes das etapas, caso venham com variação textual
+ideb_painel[
+  grepl("inic", anos_escolares, ignore.case = TRUE),
+  anos_escolares := "anos_iniciais"
+]
+
+ideb_painel[
+  grepl("fin", anos_escolares, ignore.case = TRUE),
+  anos_escolares := "anos_finais"
+]
+
+ideb_painel[
+  grepl("medio|médio", anos_escolares, ignore.case = TRUE),
+  anos_escolares := "ensino_medio"
+]
+
+ideb_painel <- unique(
+  ideb_painel,
+  by = c("codigo_escola", "ano", "anos_escolares")
+)
+
+setorder(
+  ideb_painel,
+  codigo_escola,
+  anos_escolares,
+  ano
+)
+
+ideb_painel <- ideb_painel[
+  ,
+  .(
+    codigo_escola,
+    ano,
+    anos_escolares,
+    ideb,
+    indicador_rendimento,
+    nota_saeb_matematica,
+    nota_saeb_lingua_portuguesa,
+    nota_saeb_media_padronizada
+  )
+]
+```
+
+
+```{r consulta_censo_informatizacao, include=FALSE}
+# ------------------------------------------------------------
+# Censo Escolar: variáveis de informatização
+# ------------------------------------------------------------
+
+query_censo <- glue("
+  WITH escolas_base AS (
+    SELECT id_escola
+    FROM UNNEST([{ids_sql}]) AS id_escola
+  )
+
+  SELECT
+    CAST(t.id_escola AS STRING) AS codigo_escola,
+    CAST(t.ano AS INT64) AS ano,
+
+    t.internet_alunos,
+    t.laboratorio_informatica,
 
     t.quantidade_computador_aluno,
     t.desktop_aluno,
@@ -422,9 +1049,8 @@ query_censo <- glue::glue("
     t.quantidade_computador_portatil_aluno,
     t.tablet_aluno,
     t.quantidade_tablet_aluno,
+
     t.acesso_internet_computador,
-    t.laboratorio_informatica,
-    t.internet_alunos,
     t.acesso_internet_dispositivo_pessoal
 
   FROM `basedosdados.br_inep_censo_escolar.escola` AS t
@@ -432,72 +1058,693 @@ query_censo <- glue::glue("
   INNER JOIN escolas_base AS e
     ON CAST(t.id_escola AS STRING) = e.id_escola
 
-  WHERE CAST(t.ano AS INT64) BETWEEN 2015 AND 2025
-    AND t.sigla_uf = '{uf_foco}'
+  WHERE t.sigla_uf = '{uf_foco}'
+    AND CAST(t.ano AS INT64) BETWEEN {ano_inicio} AND {ano_fim}
 ")
 
-censo_escola <- basedosdados::read_sql(
+censo_raw <- basedosdados::read_sql(
   query = query_censo,
   billing_project_id = billing_project_id
-) |>
-  janitor::clean_names() |>
-  dplyr::mutate(
-    ano = as.integer(ano),
-    id_escola_bd = normalizar_codigo(id_escola_bd)
-  ) |>
-  dplyr::distinct(ano, id_escola_bd, .keep_all = TRUE)
+)
+
+setDT(censo_raw)
+setnames(censo_raw, janitor::make_clean_names(names(censo_raw)))
+
+censo_raw[
+  ,
+  codigo_escola := normalizar_codigo(codigo_escola)
+]
+
+censo_raw[
+  ,
+  ano := as.integer(ano)
+]
+
+# Garante uma linha por escola-ano
+censo_raw <- unique(
+  censo_raw,
+  by = c("codigo_escola", "ano")
+)
 
 # ------------------------------------------------------------
-# 6. Consulta otimizada ao IDEB
+# Construção dos indicadores de tratamento
 # ------------------------------------------------------------
 
-query_ideb <- glue::glue("
-  WITH escolas_base AS (
-    SELECT id_escola
-    FROM UNNEST([{ids_sql}]) AS id_escola
+censo_informatizacao_painel <- copy(censo_raw)
+
+censo_informatizacao_painel[
+  ,
+  `:=`(
+    internet_alunos_bin = binario_bd(internet_alunos),
+    laboratorio_informatica_bin = binario_bd(laboratorio_informatica),
+
+    quantidade_computador_aluno_num = num_bd(quantidade_computador_aluno),
+    desktop_aluno_bin = binario_bd(desktop_aluno),
+    quantidade_desktop_aluno_num = num_bd(quantidade_desktop_aluno),
+
+    computador_portatil_aluno_bin = binario_bd(computador_portatil_aluno),
+    quantidade_computador_portatil_aluno_num = num_bd(quantidade_computador_portatil_aluno),
+
+    tablet_aluno_bin = binario_bd(tablet_aluno),
+    quantidade_tablet_aluno_num = num_bd(quantidade_tablet_aluno)
   )
+]
 
-  SELECT
-    CAST(t.ano AS INT64) AS ano,
-    CAST(t.id_escola AS STRING) AS id_escola_bd,
+censo_informatizacao_painel[
+  ,
+  trat_internet_alunos := internet_alunos_bin
+]
 
-    t.indicador_rendimento,
-    t.nota_saeb_matematica,
-    t.nota_saeb_lingua_portuguesa,
-    t.nota_saeb_media_padronizada,
-    t.ideb
+censo_informatizacao_painel[
+  ,
+  trat_lab_info := laboratorio_informatica_bin
+]
 
-  FROM `basedosdados.br_inep_ideb.escola` AS t
-
-  INNER JOIN escolas_base AS e
-    ON CAST(t.id_escola AS STRING) = e.id_escola
-
-  WHERE CAST(t.ano AS INT64) BETWEEN 2015 AND 2025
-    AND t.sigla_uf = '{uf_foco}'
-")
-
-ideb_escola <- basedosdados::read_sql(
-  query = query_ideb,
-  billing_project_id = billing_project_id
-) |>
-  janitor::clean_names() |>
-  dplyr::mutate(
-    ano = as.integer(ano),
-    id_escola_bd = normalizar_codigo(id_escola_bd)
-  ) |>
-  dplyr::distinct(ano, id_escola_bd, .keep_all = TRUE)
-
-# ------------------------------------------------------------
-# 7. Junção final à base de trabalho
-# ------------------------------------------------------------
-
-base_final <- base_final |>
-  dplyr::left_join(
-    censo_escola,
-    by = c("ano", "id_escola_bd")
-  ) |>
-  dplyr::left_join(
-    ideb_escola,
-    by = c("ano", "id_escola_bd")
+censo_informatizacao_painel[
+  ,
+  trat_dispositivo_aluno := fifelse(
+    quantidade_computador_aluno_num > 0 |
+      desktop_aluno_bin == 1L |
+      quantidade_desktop_aluno_num > 0 |
+      computador_portatil_aluno_bin == 1L |
+      quantidade_computador_portatil_aluno_num > 0 |
+      tablet_aluno_bin == 1L |
+      quantidade_tablet_aluno_num > 0,
+    1L,
+    0L
   )
+]
+
+censo_informatizacao_painel[
+  ,
+  trat_informatizacao_basica := fifelse(
+    trat_internet_alunos == 1L | trat_lab_info == 1L,
+    1L,
+    0L
+  )
+]
+
+censo_informatizacao_painel[
+  ,
+  trat_informatizacao_pedagogica := fifelse(
+    trat_internet_alunos == 1L & trat_dispositivo_aluno == 1L,
+    1L,
+    0L
+  )
+]
+
+censo_informatizacao_painel[
+  ,
+  trat_informatizacao_completa := fifelse(
+    trat_internet_alunos == 1L &
+      trat_lab_info == 1L &
+      trat_dispositivo_aluno == 1L,
+    1L,
+    0L
+  )
+]
+```
+
+
+```{r classificacao_tratamento_informatizacao, include=FALSE}
+# ------------------------------------------------------------
+# Classificação dinâmica por escola
+# ------------------------------------------------------------
+
+if (!variavel_tratamento_did %in% names(censo_informatizacao_painel)) {
+  stop("A variável definida em variavel_tratamento_did não existe no painel do Censo.")
+}
+
+censo_informatizacao_painel[
+  ,
+  trat_did := get(variavel_tratamento_did)
+]
+
+setorder(
+  censo_informatizacao_painel,
+  codigo_escola,
+  ano
+)
+
+status_tratamento_escola <- censo_informatizacao_painel[
+  ,
+  {
+    # Mantém apenas anos observados
+    dt_escola <- .SD[!is.na(ano)]
+    
+    anos_obs <- dt_escola$ano
+    trat_obs <- dt_escola$trat_did
+    
+    # Segurança: se não houver observação válida
+    if (length(anos_obs) == 0) {
+      
+      .(
+        ano_primeiro_trat_real = NA_integer_,
+        g_trat = 0L,
+        ever_treated = 0L,
+        always_treated = 0L,
+        left_censored = 0L,
+        reverte_tratamento = 0L,
+        grupo_informatizacao = "sem_informacao"
+      )
+      
+    } else {
+      
+      ano_min_obs <- min(anos_obs, na.rm = TRUE)
+      
+      # Alguma vez tratada
+      ever <- as.integer(any(trat_obs == 1L, na.rm = TRUE))
+      
+      # Primeiro ano real de tratamento
+      ano_primeiro_real <- if (ever == 1L) {
+        min(anos_obs[trat_obs == 1L], na.rm = TRUE)
+      } else {
+        NA_integer_
+      }
+      
+      # Tratada desde o primeiro ano observado
+      left <- as.integer(
+        ever == 1L &&
+          !is.na(ano_primeiro_real) &&
+          ano_primeiro_real == ano_min_obs
+      )
+      
+      # Sempre tratada em todos os anos observados
+      always <- as.integer(
+        length(trat_obs) > 0 &&
+          all(trat_obs == 1L, na.rm = TRUE)
+      )
+      
+      # Reversão: depois de tratada, volta a aparecer como 0
+      reverte <- if (ever == 1L && !is.na(ano_primeiro_real)) {
+        as.integer(any(
+          trat_obs[anos_obs > ano_primeiro_real] == 0L,
+          na.rm = TRUE
+        ))
+      } else {
+        0L
+      }
+      
+      # Ano de tratamento compatível com o ciclo do IDEB
+      # Nunca tratadas recebem 0, como exige o did::att_gt()
+      g <- if (ever == 1L) {
+        primeiro_ano_ideb_compativel(ano_primeiro_real, anos_ideb_ciclo)
+      } else {
+        0L
+      }
+      
+      # Se o primeiro tratamento ocorre depois do último IDEB disponível,
+      # também não há tratamento útil para a estimação no painel IDEB.
+      if (is.na(g)) {
+        g <- 0L
+      }
+      
+      grupo <- fcase(
+        ever == 0L,
+        "nunca_informatizada",
+        
+        always == 1L,
+        "sempre_informatizada",
+        
+        left == 1L,
+        "left_censored",
+        
+        reverte == 1L,
+        "se_tornou_informatizada_com_reversao",
+        
+        ever == 1L,
+        "se_tornou_informatizada",
+        
+        default = "sem_classificacao"
+      )
+      
+      .(
+        ano_primeiro_trat_real = as.integer(ano_primeiro_real),
+        g_trat = as.integer(g),
+        ever_treated = ever,
+        always_treated = always,
+        left_censored = left,
+        reverte_tratamento = reverte,
+        grupo_informatizacao = grupo
+      )
+    }
+  },
+  by = codigo_escola
+]
+
+censo_informatizacao_painel <- merge(
+  censo_informatizacao_painel,
+  status_tratamento_escola,
+  by = "codigo_escola",
+  all.x = TRUE,
+  sort = FALSE
+)
+
+censo_informatizacao_painel[
+  ,
+  post := fifelse(
+    ever_treated == 1L & g_trat > 0L & ano >= g_trat,
+    1L,
+    0L
+  )
+]
+
+censo_informatizacao_painel[
+  ,
+  tempo_relativo := fifelse(
+    ever_treated == 1L & g_trat > 0L,
+    ano - g_trat,
+    NA_integer_
+  )
+]
+
+censo_informatizacao_painel <- censo_informatizacao_painel[
+  ,
+  .(
+    codigo_escola,
+    ano,
+
+    trat_internet_alunos,
+    trat_lab_info,
+    trat_dispositivo_aluno,
+    trat_informatizacao_basica,
+    trat_informatizacao_pedagogica,
+    trat_informatizacao_completa,
+
+    ano_primeiro_trat_real,
+    g_trat,
+    ever_treated,
+    post,
+    tempo_relativo,
+    reverte_tratamento,
+    always_treated,
+    left_censored,
+    grupo_informatizacao
+  )
+]
+
+setorder(
+  censo_informatizacao_painel,
+  codigo_escola,
+  ano
+)
+```
+
+
+```{r painel_ideb_informatizacao, include=FALSE}
+# ------------------------------------------------------------
+# Painel final: IDEB + informatização
+# ------------------------------------------------------------
+
+painel_ideb_informatizacao <- merge(
+  ideb_painel,
+  censo_informatizacao_painel,
+  by = c("codigo_escola", "ano"),
+  all.x = TRUE,
+  sort = FALSE
+)
+
+setorder(
+  painel_ideb_informatizacao,
+  codigo_escola,
+  anos_escolares,
+  ano
+)
+
+painel_ideb_informatizacao <- painel_ideb_informatizacao[
+  ,
+  .(
+    codigo_escola,
+    ano,
+    anos_escolares,
+
+    ideb,
+    indicador_rendimento,
+    nota_saeb_matematica,
+    nota_saeb_lingua_portuguesa,
+    nota_saeb_media_padronizada,
+
+    trat_internet_alunos,
+    trat_lab_info,
+    trat_dispositivo_aluno,
+    trat_informatizacao_basica,
+    trat_informatizacao_pedagogica,
+    trat_informatizacao_completa,
+
+    ano_primeiro_trat_real,
+    g_trat,
+    ever_treated,
+    post,
+    tempo_relativo,
+    reverte_tratamento,
+    always_treated,
+    left_censored,
+    grupo_informatizacao
+  )
+]
+```
+
+
+```{r analise_descritiva_setup, message=FALSE, warning=FALSE}
+library(data.table)
+library(ggplot2)
+library(knitr)
+
+setDT(painel_ideb_informatizacao)
+setDT(escolas_ativas)
+setDT(censo_informatizacao_painel)
+
+outcomes_relatorio <- c(
+  "ideb",
+  "nota_saeb_matematica",
+  "nota_saeb_lingua_portuguesa"
+)
+
+anos_ideb <- seq(2015L, 2025L, by = 2L)
+
+normalizar_codigo <- function(x) {
+  x <- as.character(x)
+  x <- gsub("\\s+", " ", trimws(x))
+  x <- gsub("\\.0$", "", x)
+  x <- gsub("[^0-9]", "", x)
+  x <- sub("^0+", "", x)
+  x[x == ""] <- NA_character_
+  x
+}
+
+converter_data <- function(x) {
+  x <- as.character(x)
+  out <- suppressWarnings(data.table::as.IDate(x))
+  idx <- is.na(out) & !is.na(x)
+  out[idx] <- suppressWarnings(data.table::as.IDate(x[idx], format = "%d/%m/%Y"))
+  out
+}
+
+proximo_ano_ideb <- function(ano_real) {
+  if (is.na(ano_real)) return(NA_integer_)
+  possiveis <- anos_ideb[anos_ideb >= ano_real]
+  if (length(possiveis) == 0) return(NA_integer_)
+  min(possiveis)
+}
+```
+
+
+## 1. Construção da base descritiva
+```{r base_descritiva_relatorio}
+# ------------------------------------------------------------
+# Informações fixas das escolas + CMSP
+# ------------------------------------------------------------
+
+escolas_meta <- copy(escolas_ativas)
+
+escolas_meta[
+  ,
+  codigo_escola_sp := normalizar_codigo(codigo_escola)
+]
+
+escolas_meta[
+  ,
+  codigo_escola := normalizar_codigo(codigo_escola_mec)
+]
+
+escolas_meta[
+  is.na(codigo_escola),
+  codigo_escola := codigo_escola_sp
+]
+
+escolas_meta[
+  ,
+  tratamento_cmsp_periodo := converter_data(tratamento_cmsp_periodo)
+]
+
+escolas_meta[
+  ,
+  tratamento_cmsp := fifelse(is.na(tratamento_cmsp), 0L, as.integer(tratamento_cmsp))
+]
+
+escolas_meta[
+  ,
+  tratamento_cmsp_intensidade := fifelse(
+    is.na(tratamento_cmsp_intensidade),
+    0,
+    as.numeric(tratamento_cmsp_intensidade)
+  )
+]
+
+escolas_meta[
+  ,
+  ano_primeiro_cmsp := fifelse(
+    tratamento_cmsp == 1L & !is.na(tratamento_cmsp_periodo),
+    as.integer(format(tratamento_cmsp_periodo, "%Y")),
+    NA_integer_
+  )
+]
+
+escolas_meta[
+  ,
+  g_cmsp := vapply(ano_primeiro_cmsp, proximo_ano_ideb, integer(1))
+]
+
+escolas_meta[
+  tratamento_cmsp == 0L,
+  g_cmsp := 0L
+]
+
+escolas_meta[
+  ,
+  grupo_cmsp := fifelse(
+    tratamento_cmsp == 1L,
+    "Tratada CMSP",
+    "Nunca tratada CMSP"
+  )
+]
+
+escolas_meta <- escolas_meta[
+  ,
+  .(
+    codigo_escola,
+    municipio,
+    diretoria,
+    localizacao,
+    nivel_socioeconomico,
+    tratamento_cmsp,
+    tratamento_cmsp_periodo,
+    tratamento_cmsp_intensidade,
+    ano_primeiro_cmsp,
+    g_cmsp,
+    grupo_cmsp
+  )
+]
+
+escolas_meta <- unique(escolas_meta, by = "codigo_escola")
+
+# ------------------------------------------------------------
+# Painel principal para análise descritiva
+# ------------------------------------------------------------
+
+painel_desc <- copy(painel_ideb_informatizacao)
+
+painel_desc[
+  ,
+  codigo_escola := normalizar_codigo(codigo_escola)
+]
+
+painel_desc[
+  ,
+  ano := as.integer(ano)
+]
+
+painel_desc <- merge(
+  painel_desc,
+  escolas_meta,
+  by = "codigo_escola",
+  all.x = TRUE,
+  sort = FALSE
+)
+
+# Grupo de informatização para relatório
+painel_desc[
+  ,
+  grupo_info := fcase(
+    ever_treated == 0L,
+    "Nunca informatizada",
+    
+    left_censored == 1L | always_treated == 1L,
+    "Já informatizada no início",
+    
+    reverte_tratamento == 1L,
+    "Reverte tratamento",
+    
+    ever_treated == 1L,
+    "Tornou-se informatizada",
+    
+    default = NA_character_
+  )
+]
+
+# Variáveis pós-tratamento CMSP
+painel_desc[
+  ,
+  post_cmsp := fifelse(
+    tratamento_cmsp == 1L & g_cmsp > 0L & ano >= g_cmsp,
+    1L,
+    0L
+  )
+]
+
+painel_desc[
+  ,
+  tempo_relativo_cmsp := fifelse(
+    tratamento_cmsp == 1L & g_cmsp > 0L,
+    ano - g_cmsp,
+    NA_integer_
+  )
+]
+
+setorder(painel_desc, codigo_escola, anos_escolares, ano)
+```
+
+
+
+## 2. Tabela curta de cobertura da amostra
+
+Essa tabela é útil no trabalho porque mostra se temos número suficiente de escolas por ano e etapa.
+
+```{r tabela_cobertura, results='asis'}
+tab_cobertura <- painel_desc[
+  ,
+  .(
+    escolas = uniqueN(codigo_escola),
+    obs = .N,
+    com_ideb = sum(!is.na(ideb)),
+    com_matematica = sum(!is.na(nota_saeb_matematica)),
+    com_portugues = sum(!is.na(nota_saeb_lingua_portuguesa))
+  ),
+  by = .(ano, anos_escolares)
+][order(anos_escolares, ano)]
+
+kable(
+  tab_cobertura,
+  caption = "Cobertura da amostra por ano e etapa escolar"
+)
+```
+
+
+## 3. Composição dos tratamentos
+
+### 3.1 CMSP
+
+```{r tabela_cmsp, results='asis'}
+tab_cmsp <- escolas_meta[
+  ,
+  .(
+    escolas = .N,
+    intensidade_media = round(mean(tratamento_cmsp_intensidade, na.rm = TRUE), 2),
+    intensidade_mediana = round(median(tratamento_cmsp_intensidade, na.rm = TRUE), 2)
+  ),
+  by = grupo_cmsp
+]
+
+kable(
+  tab_cmsp,
+  caption = "Composição das escolas segundo exposição ao CMSP"
+)
+```
+
+### 3.2 Informatização
+
+
+```{r tabela_info, results='asis'}
+tab_info <- painel_desc[
+  ,
+  .(
+    codigo_escola,
+    grupo_info,
+    g_trat,
+    ever_treated,
+    always_treated,
+    left_censored,
+    reverte_tratamento
+  )
+]
+
+tab_info <- unique(tab_info, by = "codigo_escola")
+
+tab_info_resumo <- tab_info[
+  ,
+  .(
+    escolas = .N,
+    pct = round(100 * .N / nrow(tab_info), 2)
+  ),
+  by = grupo_info
+][order(-escolas)]
+
+kable(
+  tab_info_resumo,
+  caption = "Composição das escolas segundo trajetória de informatização"
+)
+```
+
+
+## 4. Tendências prévias: CMSP
+
+Essa é uma das figuras mais importantes do trabalho. Ela compara a trajetória média dos resultados **antes da exposição ao CMSP**.
+
+
+```{r tendencias_previas_cmsp}
+ano_min_cmsp <- min(escolas_meta[g_cmsp > 0, g_cmsp], na.rm = TRUE)
+
+painel_pre_cmsp <- painel_desc[
+  ano < ano_min_cmsp
+]
+
+painel_pre_cmsp_long <- melt(
+  painel_pre_cmsp,
+  id.vars = c("codigo_escola", "ano", "anos_escolares", "grupo_cmsp"),
+  measure.vars = outcomes_relatorio,
+  variable.name = "outcome",
+  value.name = "valor"
+)
+
+painel_pre_cmsp_long[
+  ,
+  outcome := fcase(
+    outcome == "ideb", "IDEB",
+    outcome == "nota_saeb_matematica", "SAEB Matemática",
+    outcome == "nota_saeb_lingua_portuguesa", "SAEB Português"
+  )
+]
+
+tab_pre_cmsp <- painel_pre_cmsp_long[
+  !is.na(valor),
+  .(
+    media = mean(valor, na.rm = TRUE),
+    escolas = uniqueN(codigo_escola)
+  ),
+  by = .(ano, anos_escolares, grupo_cmsp, outcome)
+]
+
+graf_pre_cmsp <- ggplot(
+  tab_pre_cmsp,
+  aes(
+    x = ano,
+    y = media,
+    group = grupo_cmsp,
+    linetype = grupo_cmsp
+  )
+) +
+  geom_line(linewidth = 0.9) +
+  geom_point(size = 1.8) +
+  facet_grid(outcome ~ anos_escolares, scales = "free_y") +
+  scale_x_continuous(breaks = anos_ideb) +
+  labs(
+    title = "Tendências prévias dos resultados educacionais segundo exposição ao CMSP",
+    subtitle = "Amostra restrita aos anos anteriores ao primeiro ciclo IDEB pós-CMSP",
+    x = "Ano",
+    y = "Média do outcome",
+    linetype = "Grupo"
+  ) +
+  theme_minimal()
+
+graf_pre_cmsp
 ```

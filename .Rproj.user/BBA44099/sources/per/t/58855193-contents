@@ -1,0 +1,169 @@
+---
+title: ""
+author: ""
+date: ""
+output:
+pdf_document:
+latex_engine: xelatex
+toc: false
+number_sections: true
+fig_caption: true
+geometry: margin=2.5cm
+fontsize: 11pt
+lang: pt-BR
+header-includes:
+
+\usepackage{float}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{caption}
+\usepackage{setspace}
+\usepackage{indentfirst}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\onehalfspacing
+---
+
+
+```{r setup, include=FALSE, echo=FALSE, message=FALSE, warning=FALSE}
+library(data.table)
+library(ggplot2)
+library(knitr)
+library(tinytex)
+
+dir_output <- "C:\\Users\\Felipe\\Downloads\\aps\\escolas_ativas\\outputs"
+
+escolas_ativas <- readRDS(file.path(dir_output, "escolas_ativas.rds"))
+
+ideb_painel <- readRDS(file.path(dir_output, "ideb_painel.rds"))
+
+censo_informatizacao_painel <- readRDS(
+  file.path(dir_output, "censo_informatizacao_painel.rds")
+)
+
+painel_ideb_informatizacao <- readRDS(
+  file.path(dir_output, "painel_ideb_informatizacao.rds")
+)
+
+diagnostico_bases <- readRDS(
+  file.path(dir_output, "diagnostico_bases.rds")
+)
+
+setDT(escolas_ativas)
+setDT(ideb_painel)
+setDT(censo_informatizacao_painel)
+setDT(painel_ideb_informatizacao)
+```
+
+
+\begin{titlepage}
+\centering
+
+\vspace*{2.5cm}
+
+{\Large Universidade de São Paulo \par}
+
+\vspace{0.5cm}
+
+{\large Faculdade de Economia, Administração, Contabilidade e Atuária \par}
+
+\vspace{2.2cm}
+
+{\Huge \textbf{O Efeito da Plataforma CMSP sobre o desempenho dos alunos das escolas estaduais de São Paulo} \par}
+
+\vspace{2.5cm}
+
+{\large Andrei Schoschlakow Bonifácio - 14558482 \par}
+
+\vspace{0.4cm}
+
+{\large Felipe Ferreira Alexandre - 13693144 \par}
+
+\vspace{0.4cm}
+
+{\large 22/06/2026  \par}
+
+\vfill
+
+\end{titlepage}
+
+# Introdução
+
+O objetivo deste trabalho é investigar o efeito da implementação do Centro de Mídias da Educação de São Paulo (CMSP) sobre o desempenho dos estudantes das escolas públicas estaduais do estado de São Paulo. 
+
+O CMSP, atualmente reformulado sob o nome de Sala do Futuro, foi uma plataforma digital inicialmente desenvolvida no contexto da pandemia de COVID-19 para disponibilzar aulas remotas aos alunos. Em um contexto de interrupção de atividades escolares presenciais como medida preventiva à contaminação pelo vírus, as possibilidades de usufruto das alternativas digitais pelos alunos surgiram como um potencial fator gerador de desigualdades educacionais. Por um lado, as escolas públicas estaduais possuíam condições mais ou menos favoráveis para a implementação do modelo online - quanto à capacitação dos professores, por exemplo; por outro, a desigualdade, entre os alunos, de acesso à internet e a dispositivos para assistir às aulas também contribuiu para definir os seus resultados educacionais naquele contexto. Nesse sentido, uma análise da efetividade do CMSP como política pública deve levar em conta a capacidade que escolas e alunos possuíam para o seu devido usufruto. 
+
+Refletindo mais especificamente sobre características da infraestrutura escolar que potencialmente impactaram a efetividade do CMSP, podemos considerar a disponibilidade de tablets ou computadores para os alunos para o desenvolvimento de atividades diversas, bem como a presença de laboratório de informática na unidade de ensino. Alunos mais acostumados previamente a atividades educacionais digitais podem ter feito melhor proveito da plataforma CMSP. Já quanto à condição socioeconômica dos alunos, a presença e a qualidade de conexão à internet em casa, além da quantidade de dispositivos que permitem acessá-la, também potencialmente contribuem para diferenciar a capacidade dos estudantes em usufruir de plataformas de ensino digital.
+
+Considerando as restrições estruturais existentes no Brasil à ampliação, via capital humano, da produtividade de trabalhadores de origem socioeconômica menos favorável, potenciais desigualdades educacionais emergentes da experiência pandêmica podem contribuir para a perpetuação ou para o aprofundamento da desigualdade de rendimentos no mercado de trabalho, tornando ainda mais escassas as possibilidades de desenvolvimento profissional que permitam avançar o padrão de vida das famílias ao longo do tempo. Dessa forma, a análise das consequências das medidas educacionais emergenciais tomadas durante a pandemia de COVID-19 são fundamentais para que se detectem limitações em seus resultados e se formulem políticas e estratégias de correção de desigualdades. 
+
+-MAIS 1 OU 2 PARÁGRAFOS 
+
+# Dados
+
+As fontes de dados utilizadas neste projeto foram a Subsecretaria de Planejamento da Rede Escolar (SUPLAN), a Secretaria da Educação do Estado de São Paulo (SEDUC-SP) e o Instituto Nacional de Estudos e Pesquisas Educacionais Anísio Teixeira (Inep). A unidade de análise é a escola-ano.
+
+As variáveis extraídas de cada fonte são apresentadas a seguir.
+
+- **Subsecretaria de Planejamento da Rede Escolar (SUPLAN)**
+  - **Escolas Ativas (2018–2025)**
+    - Diretoria de Ensino
+    - Município
+    - Distrito
+    - Código da Escola (Estadual)
+    - Código da Escola (MEC)
+    - Nome da Escola
+    - Tipo de Escola
+    - Endereço
+    - CEP
+    - Latitude
+    - Longitude
+
+  - **Índice de Nível Socioeconômico (INSE) por escola (2019)**
+    - Código da Escola (Estadual)
+    - Nível Socioeconômico dos Alunos
+
+- **Secretaria da Educação do Estado de São Paulo (SEDUC-SP)**
+  - **Centro de Mídias de São Paulo (CMSP) (2020–2021)**
+    - Código da Escola
+    - Tipo de Ensino
+    - Data
+    - Tempo de Sessão
+
+- **Instituto Nacional de Estudos e Pesquisas Educacionais Anísio Teixeira (Inep)**
+  - **Censo Escolar (2015–2025)**
+    - Ano
+    - ID da Escola
+    - Quantidade de Computadores
+    - Quantidade de Computadores Portáteis
+    - Quantidade de Tablets
+    - Acesso à Internet
+    - Laboratório de Informática
+
+  - **Índice de Desenvolvimento da Educação Básica (Ideb) (2015–2025)**
+    - Ano
+    - ID da Escola
+    - Indicador de Rendimento
+    - Nota de Matemática
+    - Nota de Língua Portuguesa
+    - Nota Saeb
+    - Ideb
+    
+  COLOCAR A 'FUNÇÃO INTUITIVA' DE CADA VARIÁVEL
+  
+# Metodologia 
+
+A estratégia empírica deste trabalho busca estimar o impacto do programa CMSP sobre o desempenho dos alunos das escolas estaduais paulistas, medido por meio do Ideb e de seus componentes - Indicador de Rendimento, Nota de Matemática, Nota de Língua Portuguesa e Nota Saeb. 
+
+A implementação do programa nas escolas foi modelada como a atribuição de tratamento em um modelo de Diferenças em Diferenças. Visto que o CMSP foi implementado em um conjunto de escolas no ano de 2020 e em outro conjunto no ano de 2021, foi utilizado o estimador DiD de múltiplos períodos de tempo formulado por Callaway e Sant'Anna, que recupera o efeito médio do tratamento e corrige limitações do modelo tradicional TWFE (uso de amostras inicialmente tratadas como controle para amostras ainda não tratadas). 
+
+Para reduzir o viés de seleção, o pareamento de tratados e controles comparáveis foi utilizado como complemento ao método DiD em múltiplos períodos de tempo. As variáveis de localização da escola - endereço, CEP, latitude e longitude -, nível socioeconômico dos alunos e características da infraestrutura de tecnologia - computadores e tablets disponíveis para alunos, acesso à internet, presença de laboratório de informática - foram utilizadas como controles para a realização do matching.
+
+Para que o estimador DiD recupere o efeito do tratamento sobre os tratados, é necessário que valha a hipótese de tendências paralelas - ou seja, é preciso que, na ausência da atribuição de tratamento, a variação dos resultados ao longo do tempo fosse a mesma nas escolas tratadas e nas escolas não tratadas. Para corroborar essa suposição, que não é testável, foram utilizados dados anuais de 2018 em diante para a análise de tendências prévias entre escolas tratadas e não tratadas. 
+
+
+
+
+
+
