@@ -136,1639 +136,325 @@ library(readxl)
 library(lubridate)
 library(did)
 library(ggplot2)
+library(knitr)
+library(scales)
+
+options(encoding = "UTF-8")
 
 knitr::opts_chunk$set(
   echo = FALSE,
   message = FALSE,
   warning = FALSE,
   fig.align = "center",
-  fig.width = 7,
-  fig.height = 4.5,
+  fig.width = 8,
+  fig.height = 5,
   dpi = 300
 )
 
-# Caminho do arquivo
+# Altere apenas este caminho se o arquivo estiver em outra pasta.
 arquivo <- "C:/Users/Felipe/OneDrive/Documentos/GitHub/projeto-aps/inputs/MDIP_2026.xlsx"
-
-# Diagnóstico de existência do arquivo
-stopifnot(file.exists(arquivo))
-
-# Conferir abas disponíveis
-print(excel_sheets(arquivo))
-
-# Ler bases
-mdip <- as.data.table(
-  read_excel(arquivo, sheet = "MDIP_2013_A_2026")
-)
-
-trat <- as.data.table(
-  read_excel(arquivo, sheet = "BATALHOES_TRATADOS")
-)
+dir_output <- "outputs"
+dir.create(dir_output, showWarnings = FALSE, recursive = TRUE)
 ```
 
-```{r padronizacao, include=FALSE}
-# ============================================================
-# 1. Padronização inicial de nomes de colunas
-# ============================================================
+```{r importar_tratar}
+# -----------------------------------------------------------------------------
+# 1. Importação
+# -----------------------------------------------------------------------------
+mdip <- as.data.table(read_excel(arquivo, sheet = "MDIP_2013_A_2026"))
+trat <- as.data.table(read_excel(arquivo, sheet = "BATALHOES_TRATADOS"))
 
-setnames(mdip, make.unique(trimws(names(mdip))))
-setnames(trat, make.unique(trimws(names(trat))))
+setnames(mdip, trimws(names(mdip)))
+setnames(trat, tolower(iconv(trimws(names(trat)), to = "ASCII//TRANSLIT")))
 
 setnames(
   mdip,
-  old = c(
-    "ANO_ESTATISTICA",
-    "MES_ESTATISTICA",
-    "COORPORACAO",
-    "SITUACAO",
-    "LABEL_CIA",
-    "LABEL_BTL",
-    "LABEL_CMDO",
-    "IDADE_PESSOA",
-    "COR_PELE"
-  ),
-  new = c(
-    "ano",
-    "mes",
-    "corporacao",
-    "situacao",
-    "label_cia",
-    "id_btl",
-    "label_cmdo",
-    "idade",
-    "cor_pele"
-  ),
+  old = c("ANO_ESTATISTICA", "MES_ESTATISTICA", "COORPORACAO", "SITUACAO", "LABEL_BTL"),
+  new = c("ano", "mes", "corporacao", "situacao", "id_btl"),
   skip_absent = TRUE
 )
 
-setnames(
-  trat,
-  old = names(trat),
-  new = make.unique(tolower(trimws(names(trat))))
-)
-
-# ============================================================
-# 2. Checagem de colunas obrigatórias
-# ============================================================
-
-cols_mdip_obrigatorias <- c(
-  "ano", "mes", "corporacao", "situacao",
-  "label_cia", "id_btl", "label_cmdo",
-  "idade", "cor_pele"
-)
-
-cols_trat_obrigatorias <- c("batalhao", "data_pov")
-
-faltantes_mdip <- setdiff(cols_mdip_obrigatorias, names(mdip))
-faltantes_trat <- setdiff(cols_trat_obrigatorias, names(trat))
-
-if (length(faltantes_mdip) > 0) {
-  stop(
-    "Colunas obrigatórias ausentes na base MDIP: ",
-    paste(faltantes_mdip, collapse = ", ")
-  )
-}
-
-if (length(faltantes_trat) > 0) {
-  stop(
-    "Colunas obrigatórias ausentes na tabela de tratamento: ",
-    paste(faltantes_trat, collapse = ", ")
-  )
-}
-
-# ============================================================
-# 3. Funções auxiliares
-# ============================================================
-
-limpa_unidade_pm <- function(x) {
-  x <- as.character(x)
-  x <- trimws(x)
-  x <- toupper(x)
-  x <- iconv(x, from = "", to = "ASCII//TRANSLIT")
+# -----------------------------------------------------------------------------
+# 2. Limpeza simples dos campos usados
+# -----------------------------------------------------------------------------
+limpa_batalhao <- function(x) {
+  x <- toupper(trimws(as.character(x)))
   x <- gsub("\\s+", "", x)
-
-  x[x %in% c(
-    "", "NA", "NULL", "-",
-    "NAOLOCALIZADO", "NAOINFORMADO", "IGNORADO"
-  )] <- NA_character_
-
+  x[x %in% c("", "NA", "NULL", "-", "NAOLOCALIZADO", "NÃOLOCALIZADO")] <- NA_character_
   x
 }
 
-first_non_na <- function(x) {
-  x <- x[!is.na(x) & x != ""]
-  if (length(x) == 0) NA_character_ else x[1]
+mdip[, id_btl := limpa_batalhao(id_btl)]
+mdip[, corporacao := toupper(iconv(trimws(as.character(corporacao)), to = "ASCII//TRANSLIT"))]
+mdip[, situacao   := toupper(iconv(trimws(as.character(situacao)),   to = "ASCII//TRANSLIT"))]
+mdip[, ano_mes := as.IDate(sprintf("%04d-%02d-01", as.integer(ano), as.integer(mes)))]
+
+trat[, id_btl := limpa_batalhao(batalhao)]
+if (inherits(trat$data_pov, "Date") || inherits(trat$data_pov, "POSIXt")) {
+  trat[, data_pov := as.IDate(as.Date(data_pov))]
+} else if (is.numeric(trat$data_pov)) {
+  trat[, data_pov := as.IDate(as.Date(data_pov, origin = "1899-12-30"))]
+} else {
+  trat[, data_pov := as.IDate(parse_date_time(as.character(data_pov), orders = c("ymd", "dmy", "dmY"), quiet = TRUE))]
 }
 
-parse_data_excel <- function(x) {
-  if (inherits(x, "IDate")) {
-    return(x)
-  }
+# Janela principal: janeiro/2019 a maio/2022.
+inicio <- as.IDate("2019-01-01")
+fim    <- as.IDate("2022-05-01")
 
-  if (inherits(x, "Date")) {
-    return(data.table::as.IDate(x))
-  }
+calendario <- data.table(ano_mes = seq(inicio, fim, by = "month"))
+calendario[, bimestre := as.IDate(sprintf(
+  "%04d-%02d-01",
+  year(ano_mes),
+  2 * ((month(ano_mes) - 1) %/% 2) + 1
+))]
 
-  if (inherits(x, "POSIXt")) {
-    return(data.table::as.IDate(as.Date(x)))
-  }
+bimestres <- unique(calendario[, .(bimestre)])
+bimestres[, t := .I]
 
-  if (is.numeric(x)) {
-    return(data.table::as.IDate(as.Date(x, origin = "1899-12-30")))
-  }
-
-  x <- as.character(x)
-  x <- trimws(x)
-  x[x %in% c("", "NA", "NULL", "-", "NÃO INFORMADO", "NAO INFORMADO")] <- NA_character_
-
-  data.table::as.IDate(
-    lubridate::parse_date_time(
-      x,
-      orders = c("ymd", "dmy", "dmY", "ym", "my", "Ymd"),
-      quiet = TRUE
-    )
-  )
-}
-
-# ============================================================
-# 4. Preservar variáveis originais para auditoria
-# ============================================================
-
-mdip[, id_btl_raw := id_btl]
-mdip[, label_cia_raw := label_cia]
-mdip[, label_cmdo_raw := label_cmdo]
-mdip[, corporacao_raw := corporacao]
-mdip[, situacao_raw := situacao]
-mdip[, cor_pele_raw := cor_pele]
-mdip[, idade_raw := idade]
-
-trat[, batalhao_raw := batalhao]
-trat[, data_pov_raw := data_pov]
-
-# ============================================================
-# 5. Limpeza da base MDIP
-# ============================================================
-
-mdip[, id_btl := limpa_unidade_pm(id_btl)]
-mdip[, label_cia := limpa_unidade_pm(label_cia)]
-
-mdip[, label_cmdo := trimws(as.character(label_cmdo))]
-mdip[, corporacao := toupper(trimws(as.character(corporacao)))]
-mdip[, situacao := toupper(trimws(as.character(situacao)))]
-mdip[, cor_pele := toupper(trimws(as.character(cor_pele)))]
-
-mdip[
-  idade %in% c("NULL", "NA", "", "-", "IGNORADO"),
-  idade := NA
-]
-
-mdip[
-  ,
-  idade := readr::parse_number(as.character(idade))
-]
-
-mdip[, ano := as.integer(ano)]
-mdip[, mes := as.integer(mes)]
-
-mdip[
-  is.na(ano) | is.na(mes) | mes < 1 | mes > 12,
-  ano_mes := as.IDate(NA)
-]
-
-mdip[
-  !is.na(ano) & !is.na(mes) & mes >= 1 & mes <= 12,
-  ano_mes := as.IDate(sprintf("%04d-%02d-01", ano, mes))
-]
-
-# ============================================================
-# 6. Limpeza da tabela de tratamento
-# ============================================================
-
-trat[, id_btl := limpa_unidade_pm(batalhao)]
-trat[, data_pov := parse_data_excel(data_pov)]
-
-trat[
-  ,
-  data_pov_mes := data.table::as.IDate(
-    lubridate::floor_date(as.Date(data_pov), unit = "month")
-  )
-]
-
-# ============================================================
-# 7. Diagnósticos internos de padronização
-# ============================================================
-
-diag_mdip_padronizacao <- list(
-  n_linhas = nrow(mdip),
-  n_batalhoes = uniqueN(mdip$id_btl, na.rm = TRUE),
-  n_id_btl_missing = sum(is.na(mdip$id_btl)),
-  n_ano_mes_missing = sum(is.na(mdip$ano_mes)),
-  ano_min = min(mdip$ano, na.rm = TRUE),
-  ano_max = max(mdip$ano, na.rm = TRUE)
-)
-
-diag_trat_padronizacao <- trat[
-  ,
-  .(
-    n_linhas = .N,
-    n_datas_distintas = uniqueN(data_pov_mes, na.rm = TRUE),
-    primeira_data = suppressWarnings(min(data_pov_mes, na.rm = TRUE)),
-    ultima_data = suppressWarnings(max(data_pov_mes, na.rm = TRUE))
-  ),
-  by = id_btl
-][order(-n_linhas)]
-
-diag_trat_problemas <- diag_trat_padronizacao[
-  is.na(id_btl) | n_datas_distintas > 1
-]
+mdip_analise <- mdip[ano_mes >= inicio & ano_mes <= fim]
+mdip_analise <- merge(mdip_analise, calendario, by = "ano_mes", all.x = TRUE)
 ```
 
-```{r janela, include=FALSE}
-# ============================================================
-# Definição das janelas temporais da análise
-# ============================================================
-
-# Mantemos duas janelas:
-# 1. janela_tendencias: mais ampla, para gráficos descritivos,
-#    diagnóstico de tendências e comparação com referências que usam 2017-2022.
-# 2. janela_fgv: mais próxima da estratégia temporal da FGV/CCAS,
-#    que utiliza 2019 até julho de 2022.
-
-janelas <- list(
-  tendencias_2017_2022 = list(
-    inicio = as.IDate("2017-01-01"),
-    fim    = as.IDate("2022-12-01"),
-    descricao = "Janela ampla para tendências descritivas e comparação com referências 2017-2022"
-  ),
-  fgv_2019_2022 = list(
-    inicio = as.IDate("2019-01-01"),
-    fim    = as.IDate("2022-07-01"),
-    descricao = "Janela próxima ao estudo FGV/CCAS: janeiro de 2019 a julho de 2022"
-  )
-)
-
-# Preserva a base completa após padronização
-mdip_full <- copy(mdip)
-
-# Função auxiliar para criar bases por janela
-criar_janela_mdip <- function(base, inicio, fim) {
-  base[
-    !is.na(ano_mes) &
-      ano_mes >= inicio &
-      ano_mes <= fim
-  ]
-}
-
-# Função auxiliar para criar calendário mensal da janela
-criar_calendario_mensal <- function(inicio, fim) {
-  meses <- data.table(
-    ano_mes = seq(inicio, fim, by = "month")
-  )
-
-  meses[, t := .I]
-
-  meses
-}
-
-# ============================================================
-# Janela 1: 2017-2022, para tendências e gráficos descritivos
-# ============================================================
-
-mdip_tendencias <- criar_janela_mdip(
-  base = mdip_full,
-  inicio = janelas$tendencias_2017_2022$inicio,
-  fim = janelas$tendencias_2017_2022$fim
-)
-
-meses_tendencias <- criar_calendario_mensal(
-  inicio = janelas$tendencias_2017_2022$inicio,
-  fim = janelas$tendencias_2017_2022$fim
-)
-
-# ============================================================
-# Janela 2: 2019-jul/2022, próxima à FGV
-# ============================================================
-
-mdip_fgv <- criar_janela_mdip(
-  base = mdip_full,
-  inicio = janelas$fgv_2019_2022$inicio,
-  fim = janelas$fgv_2019_2022$fim
-)
-
-meses_fgv <- criar_calendario_mensal(
-  inicio = janelas$fgv_2019_2022$inicio,
-  fim = janelas$fgv_2019_2022$fim
-)
-
-# ============================================================
-# Diagnósticos internos das janelas
-# ============================================================
-
-diag_janelas <- rbindlist(
-  list(
-    data.table(
-      janela = "tendencias_2017_2022",
-      descricao = janelas$tendencias_2017_2022$descricao,
-      inicio = janelas$tendencias_2017_2022$inicio,
-      fim = janelas$tendencias_2017_2022$fim,
-      n_meses = nrow(meses_tendencias),
-      n_linhas_mdip = nrow(mdip_tendencias),
-      n_batalhoes = uniqueN(mdip_tendencias$id_btl, na.rm = TRUE),
-      ano_mes_min = min(mdip_tendencias$ano_mes, na.rm = TRUE),
-      ano_mes_max = max(mdip_tendencias$ano_mes, na.rm = TRUE)
-    ),
-    data.table(
-      janela = "fgv_2019_2022",
-      descricao = janelas$fgv_2019_2022$descricao,
-      inicio = janelas$fgv_2019_2022$inicio,
-      fim = janelas$fgv_2019_2022$fim,
-      n_meses = nrow(meses_fgv),
-      n_linhas_mdip = nrow(mdip_fgv),
-      n_batalhoes = uniqueN(mdip_fgv$id_btl, na.rm = TRUE),
-      ano_mes_min = min(mdip_fgv$ano_mes, na.rm = TRUE),
-      ano_mes_max = max(mdip_fgv$ano_mes, na.rm = TRUE)
-    )
-  ),
-  fill = TRUE
-)
-print(meses)
-```
-
-
-```{r outcomes, include=FALSE}
-# ============================================================
-# Construção dos outcomes em nível batalhão-mês
-# ============================================================
-
-# Observação:
-# Esta função recebe uma base MDIP já filtrada por janela temporal.
-# Assim, ela pode ser aplicada tanto à janela 2017-2022 quanto à janela FGV.
-
-padroniza_texto_categoria <- function(x) {
-  x <- as.character(x)
-  x <- trimws(x)
-  x <- toupper(x)
-  x <- iconv(x, from = "", to = "ASCII//TRANSLIT")
-  x
-}
-
-mode_non_na <- function(x) {
-  x <- x[!is.na(x) & x != ""]
-  if (length(x) == 0) {
-    return(NA_character_)
-  }
-
-  tab <- sort(table(x), decreasing = TRUE)
-  names(tab)[1]
-}
-
-criar_outcomes_btl_mes <- function(base_mdip) {
-
-  base <- copy(base_mdip)
-
-  # ------------------------------------------------------------
-  # 1. Padronização robusta das categorias usadas nos outcomes
-  # ------------------------------------------------------------
-
-  base[, corporacao_std := padroniza_texto_categoria(corporacao)]
-  base[, situacao_std   := padroniza_texto_categoria(situacao)]
-  base[, cor_pele_std   := padroniza_texto_categoria(cor_pele)]
-
-  # ------------------------------------------------------------
-  # 2. Indicadores de classificação institucional
-  # ------------------------------------------------------------
-
-  base[, is_pm := corporacao_std %in% c("PM", "POLICIA MILITAR", "PMESP")]
-  base[, is_pc := corporacao_std %in% c("PC", "POLICIA CIVIL")]
-
-  base[
-    ,
-    is_pm_servico := is_pm & situacao_std %in% c(
-      "SERVICO",
-      "EM SERVICO",
-      "SERVIÇO",
-      "EM SERVIÇO"
-    )
-  ]
-
-  base[
-    ,
-    is_pm_folga := is_pm & situacao_std %in% c(
-      "FOLGA",
-      "DE FOLGA"
-    )
-  ]
-
-  # ------------------------------------------------------------
-  # 3. Indicadores de perfil da vítima
-  # ------------------------------------------------------------
-
-  base[
-    ,
-    is_adolescente := is_pm_servico &
-      !is.na(idade) &
-      idade >= 10 &
-      idade <= 19
-  ]
-
-  base[
-    ,
-    is_negro := is_pm_servico &
-      cor_pele_std %in% c("PRETA", "PARDA", "NEGRA", "NEGRO")
-  ]
-
-  # ------------------------------------------------------------
-  # 4. Agregação batalhão-mês
-  # ------------------------------------------------------------
-
-  mdip_btl_mes <- base[
-    !is.na(id_btl) & !is.na(ano_mes),
-    .(
-      mdip_total = .N,
-
-      mdip_pm_servico = sum(is_pm_servico, na.rm = TRUE),
-      mdip_pm_folga   = sum(is_pm_folga, na.rm = TRUE),
-      mdip_pc         = sum(is_pc, na.rm = TRUE),
-
-      mdip_adolescente = sum(is_adolescente, na.rm = TRUE),
-      mdip_negros      = sum(is_negro, na.rm = TRUE)
-    ),
-    by = .(id_btl, ano_mes)
-  ][order(id_btl, ano_mes)]
-
-  # ------------------------------------------------------------
-  # 5. Cadastro auxiliar de batalhões
-  # ------------------------------------------------------------
-
-  cad_btl <- base[
-    !is.na(id_btl),
-    .(
-      label_cmdo = mode_non_na(label_cmdo),
-      n_registros_mdip = .N,
-      n_comandos_distintos = uniqueN(label_cmdo, na.rm = TRUE)
-    ),
-    by = id_btl
-  ][order(id_btl)]
-
-  # ------------------------------------------------------------
-  # 6. Diagnóstico interno dos outcomes
-  # ------------------------------------------------------------
-
-  diag_outcomes <- base[
-    ,
-    .(
-      n_registros = .N,
-      n_sem_batalhao = sum(is.na(id_btl)),
-      n_sem_ano_mes = sum(is.na(ano_mes)),
-
-      n_pm = sum(is_pm, na.rm = TRUE),
-      n_pc = sum(is_pc, na.rm = TRUE),
-      n_pm_servico = sum(is_pm_servico, na.rm = TRUE),
-      n_pm_folga = sum(is_pm_folga, na.rm = TRUE),
-
-      n_adolescentes_pm_servico = sum(is_adolescente, na.rm = TRUE),
-      n_negros_pm_servico = sum(is_negro, na.rm = TRUE)
-    )
-  ]
-
-  list(
-    mdip_btl_mes = mdip_btl_mes,
-    cad_btl = cad_btl,
-    diag_outcomes = diag_outcomes,
-    base_classificada = base
-  )
-}
-
-# ============================================================
-# Aplicação da função às duas janelas
-# ============================================================
-
-out_tendencias <- criar_outcomes_btl_mes(mdip_tendencias)
-out_fgv        <- criar_outcomes_btl_mes(mdip_fgv)
-
-mdip_btl_mes_tendencias <- out_tendencias$mdip_btl_mes
-cad_btl_tendencias      <- out_tendencias$cad_btl
-diag_outcomes_tendencias <- out_tendencias$diag_outcomes
-
-mdip_btl_mes_fgv <- out_fgv$mdip_btl_mes
-cad_btl_fgv      <- out_fgv$cad_btl
-diag_outcomes_fgv <- out_fgv$diag_outcomes
-```
-
-
-```{r painel_balanceado, include=FALSE}
-# ============================================================
-# Construção de painel balanceado batalhão x mês
-# ============================================================
-
-# Cadastro de batalhões usando a base completa, não apenas uma janela.
-# Isso evita que o comando do batalhão dependa da janela analisada.
-
-cad_btl_full <- mdip_full[
+```{r montar_painel}
+# -----------------------------------------------------------------------------
+# 3. Outcome: MDIP por PM em serviço, por batalhão-bimestre
+# -----------------------------------------------------------------------------
+mdip_bi <- mdip_analise[
   !is.na(id_btl),
   .(
-    label_cmdo = mode_non_na(label_cmdo),
-    n_registros_mdip_full = .N,
-    n_comandos_distintos = uniqueN(label_cmdo, na.rm = TRUE)
+    mdip_pm_servico = sum(
+      corporacao %in% c("PM", "POLICIA MILITAR") &
+        situacao %in% c("SERVICO", "EM SERVICO"),
+      na.rm = TRUE
+    )
   ),
+  by = .(id_btl, bimestre)
+]
+
+# Usa todos os batalhões que aparecem na base de MDIP ou na tabela de tratamento.
+batalhoes <- unique(c(
+  mdip[!is.na(id_btl), id_btl],
+  trat[!is.na(id_btl), id_btl]
+))
+
+painel <- CJ(id_btl = sort(batalhoes), bimestre = bimestres$bimestre)
+painel <- merge(painel, bimestres, by = "bimestre", all.x = TRUE)
+painel <- merge(painel, mdip_bi, by = c("id_btl", "bimestre"), all.x = TRUE)
+painel[is.na(mdip_pm_servico), mdip_pm_servico := 0L]
+
+# -----------------------------------------------------------------------------
+# 4. Tratamento: primeiro bimestre com câmeras
+# -----------------------------------------------------------------------------
+trat_u <- trat[
+  !is.na(id_btl) & !is.na(data_pov),
+  .(data_pov = min(data_pov)),
   by = id_btl
 ]
 
-# Outcomes que devem ser preenchidos com zero quando não há MDIP no batalhão-mês
-cols_outcomes <- c(
-  "mdip_total",
-  "mdip_pm_servico",
-  "mdip_pm_folga",
-  "mdip_pc",
-  "mdip_adolescente",
-  "mdip_negros"
+trat_u[, bimestre_trat := as.IDate(sprintf(
+  "%04d-%02d-01",
+  year(data_pov),
+  2 * ((month(data_pov) - 1) %/% 2) + 1
+))]
+
+trat_u <- merge(
+  trat_u,
+  bimestres[, .(bimestre_trat = bimestre, g = t)],
+  by = "bimestre_trat",
+  all.x = TRUE
 )
 
-criar_painel_balanceado <- function(
-    mdip_btl_mes,
-    meses,
-    trat,
-    cad_btl,
-    nome_janela
-) {
+# Fora da janela principal, o batalhão entra como ainda não tratado/controle nesta análise.
+trat_u[is.na(g), g := 0L]
 
-  # ------------------------------------------------------------
-  # 1. Checagem de unicidade dos outcomes
-  # ------------------------------------------------------------
-
-  dup_outcomes <- mdip_btl_mes[
-    ,
-    .N,
-    by = .(id_btl, ano_mes)
-  ][N > 1]
-
-  if (nrow(dup_outcomes) > 0) {
-    stop(
-      "Há duplicidade em mdip_btl_mes para id_btl x ano_mes na janela: ",
-      nome_janela
-    )
-  }
-
-  # ------------------------------------------------------------
-  # 2. Universo de batalhões
-  # ------------------------------------------------------------
-  # Usamos batalhões que aparecem nos outcomes, na tabela de tratamento
-  # ou no cadastro auxiliar construído a partir da base completa.
-
-  batalhoes <- unique(
-    rbindlist(
-      list(
-        mdip_btl_mes[!is.na(id_btl), .(id_btl)],
-        trat[!is.na(id_btl), .(id_btl)],
-        cad_btl[!is.na(id_btl), .(id_btl)]
-      ),
-      use.names = TRUE,
-      fill = TRUE
-    )
-  )
-
-  batalhoes <- batalhoes[!is.na(id_btl)]
-
-  # ------------------------------------------------------------
-  # 3. Grade completa batalhão x mês
-  # ------------------------------------------------------------
-
-  painel <- CJ(
-    id_btl = sort(unique(batalhoes$id_btl)),
-    ano_mes = meses$ano_mes,
-    unique = TRUE
-  )
-
-  # ------------------------------------------------------------
-  # 4. Incorporar índice temporal
-  # ------------------------------------------------------------
-
-  painel <- merge(
-    painel,
-    meses,
-    by = "ano_mes",
-    all.x = TRUE
-  )
-
-  # ------------------------------------------------------------
-  # 5. Incorporar outcomes
-  # ------------------------------------------------------------
-
-  painel <- merge(
-    painel,
-    mdip_btl_mes,
-    by = c("id_btl", "ano_mes"),
-    all.x = TRUE
-  )
-
-  # ------------------------------------------------------------
-  # 6. Incorporar cadastro de comando
-  # ------------------------------------------------------------
-
-  painel <- merge(
-    painel,
-    cad_btl,
-    by = "id_btl",
-    all.x = TRUE
-  )
-
-  # ------------------------------------------------------------
-  # 7. Preencher meses sem MDIP com zero
-  # ------------------------------------------------------------
-
-  for (v in cols_outcomes) {
-    if (!v %in% names(painel)) {
-      painel[, (v) := 0L]
-    } else {
-      painel[is.na(get(v)), (v) := 0L]
-      painel[, (v) := as.integer(get(v))]
-    }
-  }
-
-  # ------------------------------------------------------------
-  # 8. Criar identificador numérico estável para o did
-  # ------------------------------------------------------------
-
-  ids <- data.table(
-    id_btl = sort(unique(painel$id_btl))
-  )
-
-  ids[, id_btl_id := .I]
-
-  painel <- merge(
-    painel,
-    ids,
-    by = "id_btl",
-    all.x = TRUE
-  )
-
-  # ------------------------------------------------------------
-  # 9. Ordenar e diagnosticar
-  # ------------------------------------------------------------
-
-  setorder(painel, id_btl_id, ano_mes)
-
-  diag_painel <- painel[
-    ,
-    .(
-      janela = nome_janela,
-      n_batalhoes = uniqueN(id_btl),
-      n_meses = uniqueN(ano_mes),
-      n_linhas = .N,
-      linhas_esperadas = uniqueN(id_btl) * uniqueN(ano_mes),
-      painel_balanceado = .N == uniqueN(id_btl) * uniqueN(ano_mes),
-      mdip_pm_servico_total = sum(mdip_pm_servico, na.rm = TRUE),
-      mdip_total_total = sum(mdip_total, na.rm = TRUE)
-    )
-  ]
-
-  list(
-    painel = painel,
-    diag_painel = diag_painel
-  )
-}
-
-# ============================================================
-# Aplicação às duas janelas
-# ============================================================
-
-painel_tendencias_obj <- criar_painel_balanceado(
-  mdip_btl_mes = mdip_btl_mes_tendencias,
-  meses = meses_tendencias,
-  trat = trat,
-  cad_btl = cad_btl_full,
-  nome_janela = "tendencias_2017_2022"
-)
-
-painel_fgv_obj <- criar_painel_balanceado(
-  mdip_btl_mes = mdip_btl_mes_fgv,
-  meses = meses_fgv,
-  trat = trat,
-  cad_btl = cad_btl_full,
-  nome_janela = "fgv_2019_2022"
-)
-
-painel_tendencias <- painel_tendencias_obj$painel
-painel_fgv        <- painel_fgv_obj$painel
-
-diag_painel_tendencias <- painel_tendencias_obj$diag_painel
-diag_painel_fgv        <- painel_fgv_obj$diag_painel
-
-diag_paineis <- rbindlist(
-  list(
-    diag_painel_tendencias,
-    diag_painel_fgv
-  ),
-  fill = TRUE
-)
-```
-
-
-```{r tratamento, include=FALSE}
-# ============================================================
-# Incorporação do tratamento aos painéis
-# ============================================================
-
-primeira_data <- function(x) {
-  x <- x[!is.na(x)]
-  if (length(x) == 0) data.table::as.IDate(NA) else min(x)
-}
-
-first_non_na <- function(x) {
-  x <- x[!is.na(x) & x != ""]
-  if (length(x) == 0) NA_character_ else x[1]
-}
-
-# ------------------------------------------------------------
-# 1. Consolidar tabela de tratamento por batalhão
-# ------------------------------------------------------------
-
-# Se fase_pov não existir, cria uma coluna vazia para evitar quebra do código
-if (!"fase_pov" %in% names(trat)) {
-  trat[, fase_pov := NA_character_]
-}
-
-trat_u_full <- trat[
-  !is.na(id_btl),
-  .(
-    data_pov_mes = primeira_data(data_pov_mes)
-  ),
-  by = id_btl
-]
-
-# Incorporar a fase associada à primeira data de tratamento
-trat_fase_aux <- trat[
-  !is.na(id_btl)
-][
-  order(id_btl, data_pov_mes)
-][
-  ,
-  .(
-    fase_pov = first_non_na(as.character(fase_pov))
-  ),
-  by = id_btl
-]
-
-trat_u_full <- merge(
-  trat_u_full,
-  trat_fase_aux,
+painel <- merge(
+  painel,
+  trat_u[, .(id_btl, data_pov, bimestre_trat, g)],
   by = "id_btl",
   all.x = TRUE
 )
 
-# Diagnóstico de possíveis conflitos na tabela de tratamento
-diag_trat_conflitos <- trat[
-  !is.na(id_btl),
-  .(
-    n_linhas = .N,
-    n_datas_distintas = uniqueN(data_pov_mes, na.rm = TRUE),
-    primeira_data = primeira_data(data_pov_mes),
-    datas_observadas = paste(sort(unique(na.omit(data_pov_mes))), collapse = "; ")
-  ),
-  by = id_btl
-][
-  n_datas_distintas > 1
-]
+painel[is.na(g), g := 0L]
+painel[, tratado := as.integer(g > 0 & t >= g)]
+painel[, grupo := fifelse(g > 0, "Tratados", "Controles")]
 
-# ------------------------------------------------------------
-# 2. Função para aplicar tratamento a um painel específico
-# ------------------------------------------------------------
-
-aplicar_tratamento_painel <- function(
-    painel,
-    meses,
-    trat_u,
-    nome_janela
-) {
-
-  painel <- copy(painel)
-  meses <- copy(meses)
-  trat_u <- copy(trat_u)
-
-  janela_inicio <- min(meses$ano_mes, na.rm = TRUE)
-  janela_fim    <- max(meses$ano_mes, na.rm = TRUE)
-
-  # Classificação da situação do tratamento em relação à janela
-  trat_u[
-    ,
-    status_trat_janela := fifelse(
-      is.na(data_pov_mes),
-      "sem_data_tratamento",
-      fifelse(
-        data_pov_mes < janela_inicio,
-        "tratado_antes_da_janela",
-        fifelse(
-          data_pov_mes > janela_fim,
-          "tratado_depois_da_janela",
-          "tratado_na_janela"
-        )
-      )
-    )
-  ]
-
-  # Mapear data de tratamento para índice t apenas se a data está dentro da janela
-  trat_u <- merge(
-    trat_u,
-    meses[, .(ano_mes, t)],
-    by.x = "data_pov_mes",
-    by.y = "ano_mes",
-    all.x = TRUE
-  )
-
-  setnames(trat_u, "t", "g")
-
-  # Para o did:
-  # g > 0: primeiro período tratado dentro da janela
-  # g = 0: não tratado dentro da janela observada
-  # tratado antes da janela deve ser marcado separadamente, pois não tem pré-tratamento
-  trat_u[
-    status_trat_janela != "tratado_na_janela",
-    g := 0L
-  ]
-
-  trat_u[
-    is.na(g),
-    g := 0L
-  ]
-
-  trat_u[, g := as.integer(g)]
-
-  # Incorporar tratamento ao painel
-  painel <- merge(
-    painel,
-    trat_u[, .(id_btl, data_pov_mes, fase_pov, status_trat_janela, g)],
-    by = "id_btl",
-    all.x = TRUE
-  )
-
-  painel[
-    is.na(status_trat_janela),
-    status_trat_janela := "sem_data_tratamento"
-  ]
-
-  painel[
-    is.na(g),
-    g := 0L
-  ]
-
-  painel[
-    ,
-    tratado_mes := as.integer(g > 0 & t >= g)
-  ]
-
-  # Outcome binário: houve ao menos uma MDIP no batalhão-mês?
-  painel[
-    ,
-    any_mdip_pm_servico := as.integer(mdip_pm_servico > 0)
-  ]
-
-  # Variável útil para gráficos descritivos
-  painel[
-    ,
-    tratado_algum_janela := as.integer(g > 0)
-  ]
-
-  # Tempo relativo ao tratamento, útil para event-study manual/descritivo
-  painel[
-    ,
-    event_time := fifelse(g > 0, t - g, NA_integer_)
-  ]
-
-  # Diagnóstico das coortes
-  diag_coortes <- painel[
-    ,
-    .(
-      janela = nome_janela,
-      n_batalhoes = uniqueN(id_btl),
-      data_pov = first(data_pov_mes),
-      fase = first(fase_pov),
-      status_trat_janela = first(status_trat_janela)
-    ),
-    by = g
-  ][order(g)]
-
-  # Diagnóstico de status de tratamento
-  diag_status_trat <- unique(painel[, .(id_btl, status_trat_janela, g)])[
-    ,
-    .(
-      janela = nome_janela,
-      n_batalhoes = .N
-    ),
-    by = .(status_trat_janela, g)
-  ][order(g, status_trat_janela)]
-
-  list(
-    painel = painel,
-    diag_coortes = diag_coortes,
-    diag_status_trat = diag_status_trat
-  )
-}
-
-# ------------------------------------------------------------
-# 3. Aplicar às duas janelas
-# ------------------------------------------------------------
-
-trat_tendencias_obj <- aplicar_tratamento_painel(
-  painel = painel_tendencias,
-  meses = meses_tendencias,
-  trat_u = trat_u_full,
-  nome_janela = "tendencias_2017_2022"
-)
-
-trat_fgv_obj <- aplicar_tratamento_painel(
-  painel = painel_fgv,
-  meses = meses_fgv,
-  trat_u = trat_u_full,
-  nome_janela = "fgv_2019_2022"
-)
-
-painel_tendencias <- trat_tendencias_obj$painel
-painel_fgv        <- trat_fgv_obj$painel
-
-diag_coortes_tendencias <- trat_tendencias_obj$diag_coortes
-diag_coortes_fgv        <- trat_fgv_obj$diag_coortes
-
-diag_status_trat_tendencias <- trat_tendencias_obj$diag_status_trat
-diag_status_trat_fgv        <- trat_fgv_obj$diag_status_trat
-
-diag_coortes <- rbindlist(
-  list(
-    diag_coortes_tendencias,
-    diag_coortes_fgv
-  ),
-  fill = TRUE
-)
-
-diag_status_trat <- rbindlist(
-  list(
-    diag_status_trat_tendencias,
-    diag_status_trat_fgv
-  ),
-  fill = TRUE
-)
+ids <- unique(painel[, .(id_btl)])
+ids[, id_num := .I]
+painel <- merge(painel, ids, by = "id_btl", all.x = TRUE)
 ```
 
-```{r covariaveis_pre, include=FALSE}
-# ============================================================
-# Covariáveis pré-tratamento
-# ============================================================
+```{r covariavel_pre}
+# -----------------------------------------------------------------------------
+# 5. Covariável: nível médio prévio de letalidade
+# -----------------------------------------------------------------------------
+# Como a entrada no programa não foi aleatória, usamos uma covariável prévia simples:
+# média de MDIP de PM em serviço antes do primeiro bimestre tratado.
 
-# A janela 2017-2019 é usada como período prévio comum.
-# Ela antecede a pandemia e a entrada inicial do Programa Olho Vivo.
-# Essas covariáveis serão calculadas a partir do painel amplo
-# e depois incorporadas tanto ao painel 2017-2022 quanto ao painel FGV.
+primeiro_tratamento <- min(painel[g > 0, bimestre_trat], na.rm = TRUE)
 
-pre_inicio <- as.IDate("2017-01-01")
-pre_fim    <- as.IDate("2019-12-01")
-
-# ------------------------------------------------------------
-# Função auxiliar para calcular tendência linear com segurança
-# ------------------------------------------------------------
-
-calcula_tendencia <- function(y) {
-  y <- as.numeric(y)
-
-  if (length(y) < 2 || all(is.na(y))) {
-    return(0)
-  }
-
-  if (sd(y, na.rm = TRUE) == 0) {
-    return(0)
-  }
-
-  tempo <- seq_along(y)
-
-  fit <- lm(y ~ tempo)
-
-  as.numeric(coef(fit)[["tempo"]])
-}
-
-# ------------------------------------------------------------
-# Calcular covariáveis pré usando o painel amplo
-# ------------------------------------------------------------
-
-pre_cov <- painel_tendencias[
-  ano_mes >= pre_inicio & ano_mes <= pre_fim,
-  .(
-    n_meses_pre = uniqueN(ano_mes),
-
-    mdip_pre_total = sum(mdip_pm_servico, na.rm = TRUE),
-    mdip_pre_media = mean(mdip_pm_servico, na.rm = TRUE),
-
-    any_mdip_pre_total = sum(any_mdip_pm_servico, na.rm = TRUE),
-    any_mdip_pre_media = mean(any_mdip_pm_servico, na.rm = TRUE),
-
-    mdip_pre_tendencia = calcula_tendencia(mdip_pm_servico)
-  ),
-  by = id_btl
+pre_btl <- painel[
+  bimestre < primeiro_tratamento,
+  .(mdip_pre_media = mean(mdip_pm_servico, na.rm = TRUE)),
+  by = id_num
 ]
 
-# ------------------------------------------------------------
-# Diagnóstico interno da janela pré
-# ------------------------------------------------------------
+painel <- merge(painel, pre_btl, by = "id_num", all.x = TRUE)
+painel[is.na(mdip_pre_media), mdip_pre_media := 0]
+```
 
-diag_pre_cov <- pre_cov[
+```{r tabela_amostra,}
+tab_amostra <- unique(
+  painel[, .(id_btl, grupo, g, data_pov, bimestre_trat)]
+)[
   ,
   .(
-    n_batalhoes = .N,
-    n_meses_pre_min = min(n_meses_pre, na.rm = TRUE),
-    n_meses_pre_max = max(n_meses_pre, na.rm = TRUE),
-    mdip_pre_total = sum(mdip_pre_total, na.rm = TRUE),
-    mdip_pre_media_media = mean(mdip_pre_media, na.rm = TRUE),
-    batalhoes_sem_pre = sum(is.na(n_meses_pre) | n_meses_pre == 0)
-  )
-]
+    Batalhoes = .N,
+    primeira_data_tra = if (all(is.na(data_pov))) as.IDate(NA) else min(data_pov, na.rm = TRUE),
+    primeiro_bimestre_trat = if (all(is.na(bimestre_trat))) as.IDate(NA) else min(bimestre_trat, na.rm = TRUE)
+  ),
+  by = grupo
+][order(grupo)]
 
-# ------------------------------------------------------------
-# Função para incorporar covariáveis pré em qualquer painel
-# ------------------------------------------------------------
-
-incorporar_covariaveis_pre <- function(painel, pre_cov) {
-
-  painel <- merge(
-    painel,
-    pre_cov,
-    by = "id_btl",
-    all.x = TRUE
-  )
-
-  cols_pre <- c(
-    "n_meses_pre",
-    "mdip_pre_total",
-    "mdip_pre_media",
-    "any_mdip_pre_total",
-    "any_mdip_pre_media",
-    "mdip_pre_tendencia"
-  )
-
-  for (v in cols_pre) {
-    painel[is.na(get(v)), (v) := 0]
-  }
-
-  painel[]
-}
-
-# ------------------------------------------------------------
-# Incorporar covariáveis nos dois painéis
-# ------------------------------------------------------------
-
-painel_tendencias <- incorporar_covariaveis_pre(
-  painel = painel_tendencias,
-  pre_cov = pre_cov
-)
-
-painel_fgv <- incorporar_covariaveis_pre(
-  painel = painel_fgv,
-  pre_cov = pre_cov
-)
 ```
 
-```{r diagnosticos, echo=FALSE, warning=FALSE, message=FALSE, results='asis'}
-# ============================================================
-# Diagnósticos da amostra e das coortes
-# ============================================================
-
-library(data.table)
-library(lubridate)
-library(knitr)
-
-# ------------------------------------------------------------
-# Funções auxiliares seguras
-# ------------------------------------------------------------
-
-primeira_data_segura <- function(x) {
-  x <- x[!is.na(x)]
-
-  if (length(x) == 0) {
-    return(as.IDate(NA))
-  }
-
-  min(x)
-}
-
-primeiro_texto_seguro <- function(x) {
-  x <- as.character(x)
-  x <- x[!is.na(x) & x != ""]
-
-  if (length(x) == 0) {
-    return(NA_character_)
-  }
-
-  x[1]
-}
-
-rotulo_janela <- function(x) {
-  fifelse(
-    x == "janela_2017_2022",
-    "2017-2022",
-    fifelse(
-      x == "janela_fgv_2019_2022",
-      "FGV: 2019-jul/2022",
-      x
-    )
-  )
-}
-
-# ------------------------------------------------------------
-# Função auxiliar para gerar diagnósticos de um painel
-# ------------------------------------------------------------
-
-gerar_diagnosticos_painel <- function(painel, nome_janela) {
-
-  painel <- copy(painel)
-
-  # ----------------------------------------------------------
-  # 1. Diagnóstico de coortes
-  # ----------------------------------------------------------
-
-  diag_coortes <- unique(
-    painel[
-      ,
-      .(
-        id_btl,
-        g,
-        data_pov_mes,
-        fase_pov,
-        status_trat_janela
-      )
-    ]
-  )[
-    ,
-    .(
-      janela = nome_janela,
-      batalhoes = uniqueN(id_btl),
-      data_pov = primeira_data_segura(data_pov_mes),
-      fase = primeiro_texto_seguro(fase_pov),
-      status = primeiro_texto_seguro(status_trat_janela)
-    ),
-    by = g
-  ][order(g)]
-
-  # ----------------------------------------------------------
-  # 2. Totais por status de tratamento na janela
-  # ----------------------------------------------------------
-
-  diag_status <- painel[
-    ,
-    .(
-      janela = nome_janela,
-      batalhoes = uniqueN(id_btl),
-      meses = uniqueN(ano_mes),
-
-      mdip_pm_servico_total = sum(mdip_pm_servico, na.rm = TRUE),
-      mdip_pm_folga_total = sum(mdip_pm_folga, na.rm = TRUE),
-      mdip_pc_total = sum(mdip_pc, na.rm = TRUE),
-
-      mdip_pm_servico_por_btl = sum(mdip_pm_servico, na.rm = TRUE) / uniqueN(id_btl),
-      mdip_pm_folga_por_btl = sum(mdip_pm_folga, na.rm = TRUE) / uniqueN(id_btl),
-      mdip_pc_por_btl = sum(mdip_pc, na.rm = TRUE) / uniqueN(id_btl)
-    ),
-    by = .(status_trat_janela)
-  ][order(status_trat_janela)]
-
-  # ----------------------------------------------------------
-  # 3. Série anual por status de tratamento na janela
-  # ----------------------------------------------------------
-
-  serie_anual_status <- painel[
-    ,
-    .(
-      janela = nome_janela,
-      batalhoes = uniqueN(id_btl),
-
-      mdip_pm_servico_total = sum(mdip_pm_servico, na.rm = TRUE),
-      mdip_pm_folga_total = sum(mdip_pm_folga, na.rm = TRUE),
-      mdip_pc_total = sum(mdip_pc, na.rm = TRUE),
-
-      mdip_pm_servico_por_btl = sum(mdip_pm_servico, na.rm = TRUE) / uniqueN(id_btl),
-      mdip_pm_folga_por_btl = sum(mdip_pm_folga, na.rm = TRUE) / uniqueN(id_btl),
-      mdip_pc_por_btl = sum(mdip_pc, na.rm = TRUE) / uniqueN(id_btl)
-    ),
-    by = .(
-      ano = year(ano_mes),
-      status_trat_janela
-    )
-  ][order(ano, status_trat_janela)]
-
-  # ----------------------------------------------------------
-  # 4. Série anual estilo UNICEF/FBSP
-  # ----------------------------------------------------------
-
-  painel[
-    ,
-    grupo_pov_ate_2022 := fifelse(
-      !is.na(data_pov_mes) & data_pov_mes <= as.IDate("2022-12-01"),
-      "Batalhões do POV até 2022",
-      "Demais batalhões"
-    )
-  ]
-
-  serie_anual_pov <- painel[
-    ,
-    .(
-      janela = nome_janela,
-      batalhoes = uniqueN(id_btl),
-
-      mdip_pm_servico_total = sum(mdip_pm_servico, na.rm = TRUE),
-      mdip_pm_folga_total = sum(mdip_pm_folga, na.rm = TRUE),
-      mdip_pc_total = sum(mdip_pc, na.rm = TRUE),
-
-      mdip_pm_servico_por_btl = sum(mdip_pm_servico, na.rm = TRUE) / uniqueN(id_btl),
-      mdip_pm_folga_por_btl = sum(mdip_pm_folga, na.rm = TRUE) / uniqueN(id_btl),
-      mdip_pc_por_btl = sum(mdip_pc, na.rm = TRUE) / uniqueN(id_btl)
-    ),
-    by = .(
-      ano = year(ano_mes),
-      grupo_pov_ate_2022
-    )
-  ][order(ano, grupo_pov_ate_2022)]
-
-  list(
-    diag_coortes = diag_coortes,
-    diag_status = diag_status,
-    serie_anual_status = serie_anual_status,
-    serie_anual_pov = serie_anual_pov
-  )
-}
-
-# ============================================================
-# Aplicar diagnósticos aos dois painéis
-# ============================================================
-
-diag_tendencias <- gerar_diagnosticos_painel(
-  painel = painel_tendencias,
-  nome_janela = "janela_2017_2022"
-)
-
-diag_fgv <- gerar_diagnosticos_painel(
-  painel = painel_fgv,
-  nome_janela = "janela_fgv_2019_2022"
-)
-
-# ============================================================
-# Objetos consolidados para uso posterior
-# ============================================================
-
-tab_diag_coortes <- rbindlist(
-  list(
-    diag_tendencias$diag_coortes,
-    diag_fgv$diag_coortes
+```{r tabela_tendencias_pre}
+tab_tendencias_pre <- painel[
+  bimestre < primeiro_tratamento,
+  .(
+    batalhoes = uniqueN(id_btl),
+    mortes = sum(mdip_pm_servico),
+    media_por_batalhao = mean(mdip_pm_servico),
+    pct_batalhao_com_mdip = mean(mdip_pm_servico > 0)
   ),
-  fill = TRUE
-)
-
-tab_diag_status <- rbindlist(
-  list(
-    diag_tendencias$diag_status,
-    diag_fgv$diag_status
-  ),
-  fill = TRUE
-)
-
-serie_anual_status <- rbindlist(
-  list(
-    diag_tendencias$serie_anual_status,
-    diag_fgv$serie_anual_status
-  ),
-  fill = TRUE
-)
-
-serie_anual_pov <- rbindlist(
-  list(
-    diag_tendencias$serie_anual_pov,
-    diag_fgv$serie_anual_pov
-  ),
-  fill = TRUE
-)
-
-# Criar rótulos amigáveis
-tab_diag_coortes[, janela_label := rotulo_janela(janela)]
-tab_diag_status[, janela_label := rotulo_janela(janela)]
-serie_anual_status[, janela_label := rotulo_janela(janela)]
-serie_anual_pov[, janela_label := rotulo_janela(janela)]
-
-# ============================================================
-# Tabelas limpas para o relatório
-# ============================================================
-
-cat("\n\n### Diagnóstico das coortes de tratamento\n\n")
+  by = .(bimestre, grupo)
+][order(bimestre, grupo)]
 
 kable(
-  tab_diag_coortes[
-    ,
-    .(
-      Janela = janela_label,
-      `g` = g,
-      `Batalhões` = batalhoes,
-      `Data de entrada` = as.character(data_pov),
-      `Fase` = fase,
-      `Status na janela` = status
-    )
-  ],
-  digits = 2,
-  caption = "Coortes de tratamento por janela de análise."
+  tab_tendencias_pre[, .(
+    Bimestre = format(bimestre, "%Y-%m"),
+    Grupo = grupo,
+    Batalhoes = batalhoes,
+    Mortes = mortes,
+    `Media por batalhao` = round(media_por_batalhao, 3),
+    `% ao menos uma morte` = percent(pct_batalhao_com_mdip, accuracy = 0.1, decimal.mark = ",")
+  )],
+  booktabs = TRUE,
+  caption = "Tendencias previas de MDIP por PM em servico"
 )
 
-cat("\n\n### Diagnóstico por status de tratamento\n\n")
+fwrite(tab_tendencias_pre, file.path(dir_output, "tabela_tendencias_pre.csv"))
+```
 
-kable(
-  tab_diag_status[
-    ,
-    .(
-      Janela = janela_label,
-      `Status na janela` = status_trat_janela,
-      `Batalhões` = batalhoes,
-      `Meses` = meses,
-      `MDIP PM serviço` = mdip_pm_servico_total,
-      `MDIP PM serviço por batalhão` = round(mdip_pm_servico_por_btl, 2),
-      `MDIP PM folga` = mdip_pm_folga_total,
-      `MDIP PC` = mdip_pc_total
-    )
-  ],
-  digits = 2,
-  caption = "Distribuição dos batalhões e dos outcomes por status de tratamento."
-)
+```{r grafico_tendencias_pre, fig.cap="Tendências prévias de MDIP por PM em serviço", fig.align='center', fig.width=7.2, fig.height=4.1}
 
-cat("\n\n### Série anual estilo UNICEF/FBSP\n\n")
-
-kable(
-  serie_anual_pov[
-    janela == "janela_2017_2022",
-    .(
-      Ano = ano,
-      Grupo = grupo_pov_ate_2022,
-      `Batalhões` = batalhoes,
-      `MDIP PM serviço total` = mdip_pm_servico_total,
-      `MDIP PM serviço por batalhão` = round(mdip_pm_servico_por_btl, 2),
-      `MDIP PM folga total` = mdip_pm_folga_total,
-      `MDIP PC total` = mdip_pc_total
-    )
-  ],
-  digits = 2,
-  caption = "Série anual de MDIP por grupo retrospectivo: batalhões do POV até 2022 versus demais."
-)
-
-```{r grafico_descritivo_total, fig.width=8, fig.height=5, echo=FALSE, warning=FALSE, message=FALSE}
-library(ggplot2)
-library(scales)
-
-serie_plot_total <- serie_anual_pov[
-  janela == "2017-2022"
-]
-
-ggplot(
-  serie_plot_total,
-  aes(
-    x = ano,
-    y = mdip_pm_servico_total,
-    group = grupo_pov_ate_2022,
-    color = grupo_pov_ate_2022,
-    linetype = grupo_pov_ate_2022
-  )
+p_tendencias_pre <- ggplot(
+  tab_tendencias_pre,
+  aes(x = bimestre, y = media_por_batalhao, linetype = grupo)
 ) +
   geom_line(linewidth = 0.9) +
-  geom_point(size = 2.2) +
-  scale_x_continuous(
-    breaks = sort(unique(serie_plot_total$ano))
-  ) +
-  scale_y_continuous(
-    labels = label_number(big.mark = ".", decimal.mark = ",")
-  ) +
+  geom_point(size = 2) +
+  scale_x_date(date_breaks = "2 months", date_labels = "%b/%Y") +
+  scale_y_continuous(labels = label_number(decimal.mark = ",", big.mark = ".")) +
   labs(
-    title = "MDIP por PMs em serviço: batalhões do POV até 2022 versus demais",
-    subtitle = "Total anual de vítimas, com classificação retrospectiva dos batalhões que aderiram ao Programa Olho Vivo",
-    x = "Ano",
-    y = "Número de vítimas de MDIP",
-    color = "Grupo",
-    linetype = "Grupo"
+    title = "Tendencias previas de MDIP por PM em servico",
+    subtitle = "Media de mortes por Batalhao-Bimestre antes do primeiro tratamento observado",
+    x = NULL,
+    y = "Media por batalhao-bimestre",
+    linetype = NULL
   ) +
   theme_minimal(base_size = 11) +
   theme(
     legend.position = "bottom",
     plot.title = element_text(face = "bold"),
-    panel.grid.minor = element_blank()
+    panel.grid.minor = element_blank(),
+    axis.text.x = element_text(angle = 45, hjust = 1)
   )
-```
 
-```{r funcao_estimacao, include=FALSE}
-estimar_cs <- function(yvar, dados, usar_covariaveis = TRUE) {
-  
-  if (usar_covariaveis) {
-    formula_x <- ~ mdip_pre_media + any_mdip_pre_media + mdip_pre_tendencia
-  } else {
-    formula_x <- ~ 1
-  }
-  
-  base <- copy(dados)
-  
-  # did funciona melhor recebendo data.frame
-  base_df <- as.data.frame(base)
-  
-  att <- att_gt(
-    yname = yvar,
-    tname = "t",
-    idname = "id_btl_id",
-    gname = "g",
-    data = base_df,
-    xformla = formula_x,
-    control_group = "notyettreated",
-    est_method = "dr",
-    anticipation = 0,
-    base_period = "universal",
-    panel = TRUE,
-    bstrap = TRUE,
-    biters = 999,
-    cband = TRUE,
-    clustervars = "id_btl_id",
-    print_details = FALSE
-  )
-  
-  list(
-    att = att,
-    simple = aggte(att, type = "simple"),
-    dynamic = aggte(att, type = "dynamic"),
-    group = aggte(att, type = "group"),
-    calendar = aggte(att, type = "calendar")
-  )
-}
-```
+p_tendencias_pre
 
-```{r did_principal, include=FALSE}
-# ============================================================
-# Estimação principal: Callaway & Sant'Anna
-# ============================================================
-
-# Especificação principal:
-# janela próxima à FGV/CCAS, com covariáveis pré-tratamento 2017-2019.
-
-res_fgv_pm_servico <- estimar_cs(
-  yvar = "mdip_pm_servico",
-  dados = painel_fgv,
-  usar_covariaveis = TRUE
-)
-
-# Especificação auxiliar:
-# janela ampla 2017-2022, útil para comparar com diagnósticos descritivos.
-
-res_tendencias_pm_servico <- estimar_cs(
-  yvar = "mdip_pm_servico",
-  dados = painel_tendencias,
-  usar_covariaveis = TRUE
-)
-```
-```{r tabela_did_principal, echo=FALSE, warning=FALSE, message=FALSE}
-# ============================================================
-# Tabela limpa dos resultados principais
-# ============================================================
-
-extrair_att_agregado <- function(res, janela, outcome, especificacao) {
-
-  data.table(
-    Janela = janela,
-    Outcome = outcome,
-    Especificacao = especificacao,
-
-    ATT_simples = res$simple$overall.att,
-    EP_simples = res$simple$overall.se,
-    IC95_inf_simples = res$simple$overall.att - 1.96 * res$simple$overall.se,
-    IC95_sup_simples = res$simple$overall.att + 1.96 * res$simple$overall.se,
-
-    ATT_dinamico = res$dynamic$overall.att,
-    EP_dinamico = res$dynamic$overall.se,
-    IC95_inf_dinamico = res$dynamic$overall.att - 1.96 * res$dynamic$overall.se,
-    IC95_sup_dinamico = res$dynamic$overall.att + 1.96 * res$dynamic$overall.se,
-
-    ATT_grupo = res$group$overall.att,
-    EP_grupo = res$group$overall.se,
-    IC95_inf_grupo = res$group$overall.att - 1.96 * res$group$overall.se,
-    IC95_sup_grupo = res$group$overall.att + 1.96 * res$group$overall.se
-  )
-}
-
-tab_did_principal <- rbindlist(
-  list(
-    extrair_att_agregado(
-      res = res_fgv_pm_servico,
-      janela = "FGV: 2019-jul/2022",
-      outcome = "MDIP PM em serviço",
-      especificacao = "Com covariáveis pré"
-    ),
-    extrair_att_agregado(
-      res = res_tendencias_pm_servico,
-      janela = "2017-2022",
-      outcome = "MDIP PM em serviço",
-      especificacao = "Com covariáveis pré"
-    )
-  ),
-  fill = TRUE
-)
-
-knitr::kable(
-  tab_did_principal[
-    ,
-    .(
-      Janela,
-      Outcome,
-      Especificacao,
-      `ATT simples` = round(ATT_simples, 3),
-      `EP` = round(EP_simples, 3),
-      `IC 95%` = paste0(
-        "[",
-        round(IC95_inf_simples, 3),
-        "; ",
-        round(IC95_sup_simples, 3),
-        "]"
-      ),
-      `ATT dinâmico` = round(ATT_dinamico, 3),
-      `EP dinâmico` = round(EP_dinamico, 3),
-      `IC 95% dinâmico` = paste0(
-        "[",
-        round(IC95_inf_dinamico, 3),
-        "; ",
-        round(IC95_sup_dinamico, 3),
-        "]"
-      )
-    )
-  ],
-  caption = "Efeito estimado das câmeras corporais sobre MDIP de PMs em serviço."
+ggsave(
+  file.path(dir_output, "tendencias_pre_mdip_pm_servico.png"),
+  p_tendencias_pre,
+  width = 8,
+  height = 5,
+  dpi = 300
 )
 ```
 
 
-```{r event_study_principal, fig.width=8, fig.height=5, echo=FALSE, warning=FALSE, message=FALSE}
-# ============================================================
-# Event-study principal: janela FGV
-# ============================================================
+```{r estimacao_did, include=FALSE}
+base_did <- as.data.frame(painel)
 
-library(data.table)
-library(ggplot2)
-
-extrair_event_study <- function(res, janela_evento = c(-24, 18)) {
-
-  dyn <- data.table(
-    event_time = res$dynamic$egt,
-    att = res$dynamic$att.egt,
-    se = res$dynamic$se.egt
-  )
-
-  # Valor crítico: usa banda simultânea se disponível; caso contrário, usa 1.96
-  if ("crit.val.egt" %in% names(res$dynamic)) {
-    dyn[, crit := res$dynamic$crit.val.egt]
-  } else if ("crit.val" %in% names(res$dynamic)) {
-    dyn[, crit := res$dynamic$crit.val]
-  } else {
-    dyn[, crit := 1.96]
-  }
-
-  dyn[
-    ,
-    `:=`(
-      ic_inf = att - crit * se,
-      ic_sup = att + crit * se,
-      periodo = fifelse(event_time < 0, "Pré-tratamento", "Pós-tratamento")
-    )
-  ]
-
-  dyn[
-    event_time >= janela_evento[1] &
-      event_time <= janela_evento[2] &
-      !is.na(att)
-  ]
-}
-
-event_fgv_pm_servico <- extrair_event_study(
-  res = res_fgv_pm_servico,
-  janela_evento = c(-24, 18)
+att_pm_servico <- att_gt(
+  yname = "mdip_pm_servico",
+  tname = "t",
+  idname = "id_num",
+  gname = "g",
+  data = base_did,
+  xformla = ~ mdip_pre_media,
+  control_group = "notyettreated",
+  est_method = "dr",
+  anticipation = 0,
+  base_period = "universal",
+  panel = TRUE,
+  bstrap = TRUE,
+  biters = 999,
+  cband = TRUE,
+  clustervars = "id_num",
+  print_details = FALSE
 )
 
-ggplot(
-  event_fgv_pm_servico,
-  aes(x = event_time, y = att)
-) +
-  geom_hline(
-    yintercept = 0,
-    linetype = "dashed",
-    linewidth = 0.4
-  ) +
-  geom_vline(
-    xintercept = -0.5,
-    linetype = "dotted",
-    linewidth = 0.4
-  ) +
-  geom_errorbar(
-    aes(ymin = ic_inf, ymax = ic_sup),
-    width = 0.15,
-    alpha = 0.7
-  ) +
+res_simples <- aggte(att_pm_servico, type = "simple")
+res_evento  <- aggte(att_pm_servico, type = "dynamic")
+```
+
+```{r tabela_did}
+tab_did <- data.table(
+  Resultado = "MDIP de PM em servico",
+  ATT = res_simples$overall.att,
+  `Erro padrao` = res_simples$overall.se,
+  `IC 95% inferior` = res_simples$overall.att - 1.96 * res_simples$overall.se,
+  `IC 95% superior` = res_simples$overall.att + 1.96 * res_simples$overall.se
+)
+
+kable(
+  tab_did[, lapply(.SD, function(x) if (is.numeric(x)) round(x, 3) else x)],
+  booktabs = TRUE,
+  caption = "Efeito medio agregado das cameras corporais sobre MDIP de PM em servico"
+)
+
+fwrite(tab_did, file.path(dir_output, "tabela_did_principal.csv"))
+```
+
+```{r event_study, fig.cap="Event-study do efeito das câmeras corporais sobre MDIP de PM em serviço", fig.align='center', fig.width=7.2, fig.height=4.1}
+critico <- 1.96
+if (!is.null(res_evento$crit.val.egt)) critico <- res_evento$crit.val.egt[1]
+
+es <- data.table(
+  tempo_evento = res_evento$egt,
+  att = res_evento$att.egt,
+  se = res_evento$se.egt
+)
+
+es[, `:=`(
+  ic_inf = att - critico * se,
+  ic_sup = att + critico * se,
+  periodo = fifelse(tempo_evento < 0, "Pre-tratamento", "Pos-tratamento")
+)]
+
+p_event_study <- ggplot(es, aes(x = tempo_evento, y = att)) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  geom_vline(xintercept = -0.5, linetype = "dotted") +
+  geom_ribbon(aes(ymin = ic_inf, ymax = ic_sup), alpha = 0.18) +
+  geom_line(linewidth = 0.9) +
   geom_point(size = 2) +
-  geom_line(linewidth = 0.6) +
-  scale_x_continuous(
-    breaks = seq(-24, 18, by = 6)
-  ) +
+  scale_x_continuous(breaks = sort(unique(es$tempo_evento))) +
+  scale_y_continuous(labels = label_number(decimal.mark = ",", big.mark = ".")) +
   labs(
-    title = "Event-study: efeito das câmeras corporais sobre MDIP de PMs em serviço",
-    subtitle = "Estimador Callaway & Sant'Anna; janela FGV; controle: not-yet-treated",
-    x = "Meses em relação à entrada no Programa Olho Vivo",
+    title = "Event-study: cameras corporais e MDIP de PM em servico",
+    subtitle = "Callaway & Sant'Anna, controle not-yet-treated, unidade batalhao-bimestre",
+    x = "Bimestres em relacao a entrada das cameras",
     y = "ATT estimado"
   ) +
   theme_minimal(base_size = 11) +
@@ -1776,242 +462,20 @@ ggplot(
     plot.title = element_text(face = "bold"),
     panel.grid.minor = element_blank()
   )
-  
-```{r did_any_mdip, echo=FALSE}
-res_any_mdip <- estimar_cs(
-  yvar = "any_mdip_pm_servico",
-  dados = painel,
-  usar_covariaveis = TRUE
+
+p_event_study
+
+ggsave(
+  file.path(dir_output, "event_study_mdip_pm_servico.png"),
+  p_event_study,
+  width = 8,
+  height = 5,
+  dpi = 300
 )
-
-summary(res_any_mdip$simple)
-summary(res_any_mdip$dynamic)
-
-ggdid(res_any_mdip$dynamic) +
-  labs(
-    title = "Event-study: probabilidade de ao menos uma MDIP de PM em servico",
-    subtitle = "Outcome binario: 1 se houve ao menos uma morte no batalhao-mes",
-    x = "Meses em relacao a entrada das cameras",
-    y = "ATT estimado"
-  ) +
-  theme_minimal()  
-```  
-  
-```{r did_placebos_estimacao, include=FALSE}
-# ============================================================
-# Placebos / falsificações institucionais
-# ============================================================
-
-# PM fora de serviço: não deveria ser diretamente afetado pelo uso da câmera no turno.
-res_fgv_pm_folga <- estimar_cs(
-  yvar = "mdip_pm_folga",
-  dados = painel_fgv,
-  usar_covariaveis = TRUE
-)
-
-# Polícia Civil: placebo institucional, pois o tratamento é da PMESP.
-res_fgv_pc <- estimar_cs(
-  yvar = "mdip_pc",
-  dados = painel_fgv,
-  usar_covariaveis = TRUE
-)
-
-# Versões auxiliares na janela ampla 2017-2022
-res_tendencias_pm_folga <- estimar_cs(
-  yvar = "mdip_pm_folga",
-  dados = painel_tendencias,
-  usar_covariaveis = TRUE
-)
-
-res_tendencias_pc <- estimar_cs(
-  yvar = "mdip_pc",
-  dados = painel_tendencias,
-  usar_covariaveis = TRUE
-)
-
-```{r did_sem_covariaveis, echo=FALSE}
-res_mdip_sem_cov <- estimar_cs(
-  yvar = "mdip_pm_servico",
-  dados = painel,
-  usar_covariaveis = FALSE
-)
-
-summary(res_mdip_sem_cov$simple)
-summary(res_mdip_sem_cov$dynamic)
-
-ggdid(res_mdip_sem_cov$dynamic) +
-  labs(
-    title = "Event-study sem covariaveis",
-    subtitle = "Outcome: MDIP de PM em servico",
-    x = "Meses em relacao a entrada das cameras",
-    y = "ATT estimado"
-  ) +
-  theme_minimal()
 ```
 
 
-```{r exportar_resultados, include=FALSE}
-# ============================================================
-# Exportação de resultados, painéis e gráficos
-# ============================================================
-
-library(data.table)
-
-dir_output <- "outputs"
-dir.create(dir_output, showWarnings = FALSE, recursive = TRUE)
-
-# ------------------------------------------------------------
-# Funções auxiliares seguras
-# ------------------------------------------------------------
-
-salvar_rds_se_existir <- function(objeto, arquivo) {
-  if (exists(objeto, inherits = TRUE)) {
-    saveRDS(
-      get(objeto, inherits = TRUE),
-      file = file.path(dir_output, arquivo)
-    )
-  }
-}
-
-salvar_csv_se_existir <- function(objeto, arquivo) {
-  if (exists(objeto, inherits = TRUE)) {
-    fwrite(
-      get(objeto, inherits = TRUE),
-      file = file.path(dir_output, arquivo)
-    )
-  }
-}
-
-salvar_grafico_se_existir <- function(objeto, arquivo, width = 8, height = 5, dpi = 300) {
-  if (exists(objeto, inherits = TRUE)) {
-    ggsave(
-      filename = file.path(dir_output, arquivo),
-      plot = get(objeto, inherits = TRUE),
-      width = width,
-      height = height,
-      dpi = dpi
-    )
-  }
-}
-
-# ------------------------------------------------------------
-# 1. Salvar gráficos principais
-# ------------------------------------------------------------
-
-salvar_grafico_se_existir(
-  objeto = "p_event_fgv_pm_servico",
-  arquivo = "event_study_fgv_mdip_pm_servico.png"
-)
-
-salvar_grafico_se_existir(
-  objeto = "p_event_tendencias_pm_servico",
-  arquivo = "event_study_2017_2022_mdip_pm_servico.png"
-)
-
-salvar_grafico_se_existir(
-  objeto = "p_event_fgv_pm_folga",
-  arquivo = "event_study_fgv_placebo_pm_folga.png"
-)
-
-# ------------------------------------------------------------
-# 2. Salvar objetos estimados
-# ------------------------------------------------------------
-
-salvar_rds_se_existir(
-  objeto = "res_fgv_pm_servico",
-  arquivo = "res_fgv_pm_servico_cs.rds"
-)
-
-salvar_rds_se_existir(
-  objeto = "res_tendencias_pm_servico",
-  arquivo = "res_tendencias_pm_servico_cs.rds"
-)
-
-salvar_rds_se_existir(
-  objeto = "res_fgv_pm_folga",
-  arquivo = "res_fgv_pm_folga_cs.rds"
-)
-
-salvar_rds_se_existir(
-  objeto = "res_fgv_pc",
-  arquivo = "res_fgv_pc_cs.rds"
-)
-
-# ------------------------------------------------------------
-# 3. Salvar painéis analíticos
-# ------------------------------------------------------------
-
-salvar_rds_se_existir(
-  objeto = "painel_fgv",
-  arquivo = "painel_mdip_fgv_2019_2022.rds"
-)
-
-salvar_rds_se_existir(
-  objeto = "painel_tendencias",
-  arquivo = "painel_mdip_tendencias_2017_2022.rds"
-)
-
-salvar_csv_se_existir(
-  objeto = "painel_fgv",
-  arquivo = "painel_mdip_fgv_2019_2022.csv"
-)
-
-salvar_csv_se_existir(
-  objeto = "painel_tendencias",
-  arquivo = "painel_mdip_tendencias_2017_2022.csv"
-)
-
-# ------------------------------------------------------------
-# 4. Salvar tabelas finais do relatório
-# ------------------------------------------------------------
-
-salvar_csv_se_existir(
-  objeto = "tab_did_principal",
-  arquivo = "tabela_did_principal.csv"
-)
-
-salvar_csv_se_existir(
-  objeto = "tab_placebos",
-  arquivo = "tabela_placebos.csv"
-)
-
-salvar_csv_se_existir(
-  objeto = "tab_diag_coortes",
-  arquivo = "diagnostico_coortes.csv"
-)
-
-salvar_csv_se_existir(
-  objeto = "tab_diag_status",
-  arquivo = "diagnostico_status_tratamento.csv"
-)
-
-salvar_csv_se_existir(
-  objeto = "serie_anual_pov",
-  arquivo = "serie_anual_pov_ate_2022.csv"
-)
-
-# ------------------------------------------------------------
-# 5. Salvar um objeto consolidado com tudo que importa
-# ------------------------------------------------------------
-
-resultados_consolidados <- list(
-  painel_fgv = if (exists("painel_fgv")) painel_fgv else NULL,
-  painel_tendencias = if (exists("painel_tendencias")) painel_tendencias else NULL,
-
-  res_fgv_pm_servico = if (exists("res_fgv_pm_servico")) res_fgv_pm_servico else NULL,
-  res_tendencias_pm_servico = if (exists("res_tendencias_pm_servico")) res_tendencias_pm_servico else NULL,
-
-  res_fgv_pm_folga = if (exists("res_fgv_pm_folga")) res_fgv_pm_folga else NULL,
-  res_fgv_pc = if (exists("res_fgv_pc")) res_fgv_pc else NULL,
-
-  tab_did_principal = if (exists("tab_did_principal")) tab_did_principal else NULL,
-  tab_placebos = if (exists("tab_placebos")) tab_placebos else NULL,
-  tab_diag_coortes = if (exists("tab_diag_coortes")) tab_diag_coortes else NULL,
-  tab_diag_status = if (exists("tab_diag_status")) tab_diag_status else NULL,
-  serie_anual_pov = if (exists("serie_anual_pov")) serie_anual_pov else NULL
-)
-
-saveRDS(
-  resultados_consolidados,
-  file = file.path(dir_output, "resultados_consolidados_cameras_pmesp.rds")
-)
+```{r exportar_base, include=FALSE}
+fwrite(painel, file.path(dir_output, "painel_bimestral_mdip_pm_servico.csv"))
+saveRDS(att_pm_servico, file.path(dir_output, "did_mdip_pm_servico.rds"))
+```
