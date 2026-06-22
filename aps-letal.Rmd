@@ -56,8 +56,7 @@ header-includes:
 
 \end{titlepage}
 
-
-## 1. Introdução
+# Introdução
 
 O uso da força pelo Estado é uma dimensão central da segurança pública em regimes democráticos. A polícia detém autoridade legal para intervir, abordar, prender e, em circunstâncias extremas, empregar força letal. Justamente por isso, sua atuação depende de mecanismos institucionais de controle, supervisão e responsabilização. Quando a letalidade decorrente da intervenção policial atinge níveis elevados, o problema deixa de ser apenas operacional e passa a envolver questões de legitimidade, confiança pública, proteção de direitos e qualidade da governança estatal. No Brasil, onde a violência letal historicamente se combina a desigualdades territoriais, raciais e sociais, esse debate assume particular relevância.
 
@@ -68,7 +67,7 @@ No entanto, a evidência internacional não é homogênea. Alguns estudos experi
 Essa discussão é especialmente importante para o caso brasileiro. Em contextos de alta letalidade policial, a adoção de câmeras corporais pode ter implicações mais profundas do que em países onde o uso letal da força é menos frequente. A política pode afetar não apenas reclamações ou episódios de força não letal, mas também mortes decorrentes de intervenção policial. Ao mesmo tempo, a avaliação empírica se torna mais desafiadora, pois a implantação das câmeras costuma ocorrer em resposta a crises, pressões sociais, mudanças de comando ou reformas institucionais mais amplas. Isso significa que a queda da letalidade, quando observada, pode refletir uma combinação de fatores: o equipamento em si, novas regras de supervisão, mudanças na cultura organizacional, alterações operacionais e maior escrutínio público.
 
 
-## 2. Dados
+# Dados
 
 A análise empírica deste trabalho utiliza informações administrativas sobre mortes decorrentes de intervenção policial no Estado de São Paulo, combinadas a uma base de tratamento que identifica a entrada de unidades da Polícia Militar do Estado de São Paulo no Programa Olho Vivo. O objetivo é construir um painel de unidades policiais ao longo do tempo, permitindo comparar a trajetória da letalidade policial entre batalhões que passaram a utilizar câmeras corporais e batalhões ainda não tratados ou não tratados no período de análise.
 
@@ -96,7 +95,7 @@ Outro desafio está relacionado ao ano de 2020. A implantação inicial das câm
 
 Por fim, deve-se destacar que a análise não interpreta as câmeras corporais como uma intervenção puramente tecnológica. Os relatórios sobre o caso paulista enfatizam que o Programa Olho Vivo esteve inserido em um conjunto mais amplo de medidas de supervisão, controle e responsabilização da atividade policial. Assim, a variável de tratamento representa a entrada da unidade em um regime institucional associado ao uso de câmeras corporais, e não simplesmente a presença física do equipamento. Essa distinção é relevante para a interpretação dos resultados: o efeito estimado deve ser entendido como impacto da adesão ao Programa Olho Vivo em sua configuração original, com regras específicas de gravação, armazenamento e supervisão.
 
-## 3. Metodologia Empregada
+# Metodologia Empregada
 
 A estratégia empírica deste trabalho utiliza o método de diferença-em-diferenças com múltiplos períodos e adoção escalonada, conforme a abordagem proposta por Callaway e Sant’Anna. Esse método é adequado ao caso analisado porque a implantação das câmeras corporais não ocorreu simultaneamente em todos os batalhões. Algumas unidades passaram a utilizar câmeras em agosto de 2020, outras em junho de 2021 e outras em ondas posteriores. Portanto, não há um único momento de tratamento comum a todas as unidades; há diferentes coortes de entrada no Programa Olho Vivo.
 
