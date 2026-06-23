@@ -393,6 +393,7 @@ att_pm_servico <- att_gt(
 res_simples <- aggte(att_pm_servico, type = "simple")
 res_evento  <- aggte(att_pm_servico, type = "dynamic")
 ```
+# Resultados
 
 ```{r tabela_did}
 tab_did <- data.table(
@@ -464,15 +465,13 @@ ggsave(
 fwrite(painel, file.path(dir_output, "painel_bimestral_mdip_pm_servico.csv"))
 saveRDS(att_pm_servico, file.path(dir_output, "did_mdip_pm_servico.rds"))
 ```
-# Resultados
-
 A análise descritiva inicial indica que os batalhões que receberam câmeras corporais apresentavam, antes da implantação do Programa Olho Vivo, níveis médios de letalidade superiores aos dos batalhões utilizados como comparação. Na tabela de tendências prévias, os batalhões tratados registram médias de mortes por batalhão-bimestre sistematicamente maiores do que as observadas entre os controles. Esse padrão é relevante porque sugere que a seleção das unidades tratadas não foi aleatória: os primeiros batalhões incorporados ao programa parecem ter sido justamente unidades com maior histórico de mortes decorrentes de intervenção policial.
 
 Esse ponto reforça a importância de não interpretar a evolução bruta da letalidade como efeito causal da política. Como os tratados partem de um nível mais elevado de MDIP, uma simples comparação entre médias ou uma análise antes e depois poderia confundir o efeito das câmeras com diferenças prévias entre os batalhões. Por isso, a estratégia de diferença-em-diferenças com adoção escalonada é mais adequada: ela busca comparar a mudança na trajetória dos batalhões tratados com a mudança observada entre batalhões ainda não tratados no mesmo período.
 
 O gráfico de tendências prévias mostra que, embora os tratados apresentem níveis mais altos de letalidade, a distância entre os grupos não evolui de forma perfeitamente estável. Em alguns bimestres, os tratados se afastam dos controles; em outros, a diferença se reduz. Isso indica que a hipótese de tendências paralelas deve ser tratada com cautela. Não há uma evidência visual simples de que os grupos caminhem de forma idêntica antes da implantação, mas também não se observa uma ruptura clara imediatamente anterior ao tratamento. Em termos práticos, essa evidência sugere que a comparação é informativa, mas não elimina completamente preocupações sobre diferenças prévias entre os batalhões.
 
-O resultado agregado estimado pelo método de Callaway e Sant’Anna aponta um efeito médio negativo das câmeras corporais sobre as mortes decorrentes de intervenção de policiais militares em serviço. A estimativa pontual é de aproximadamente -0,14 morte por batalhão-bimestre. Em termos substantivos, o sinal negativo é compatível com a hipótese de que a entrada no Programa Olho Vivo reduziu a letalidade policial nas unidades tratadas. No entanto, o intervalo de confiança é amplo e inclui zero. Portanto, do ponto de vista estatístico, não é possível rejeitar a hipótese de ausência de efeito.
+O resultado agregado estimado pelo método de Callaway e Sant’Anna aponta um efeito médio negativo das câmeras corporais sobre as mortes decorrentes de intervenção de policiais militares em serviço. A estimativa pontual é de aproximadamente -0,94 morte por batalhão-bimestre. Em termos substantivos, o sinal negativo é compatível com a hipótese de que a entrada no Programa Olho Vivo reduziu a letalidade policial nas unidades tratadas. No entanto, o intervalo de confiança é amplo e inclui zero. Portanto, do ponto de vista estatístico, não é possível rejeitar a hipótese de ausência de efeito.
 
 O estudo de evento reforça essa interpretação. Antes da entrada das câmeras, os coeficientes estimados oscilam em torno de zero, mas com intervalos de confiança largos. Após a implantação, as estimativas também permanecem imprecisas. Em alguns períodos posteriores ao tratamento, especialmente em horizontes mais longos, os coeficientes tornam-se negativos, sugerindo uma possível redução tardia da letalidade. Contudo, os intervalos de confiança continuam incluindo zero. Assim, a evidência visual é compatível com uma redução da letalidade, mas não é suficientemente precisa para sustentar uma conclusão forte de impacto estatisticamente significativo.
 
